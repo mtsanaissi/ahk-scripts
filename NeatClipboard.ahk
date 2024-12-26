@@ -1,5 +1,13 @@
 #Requires AutoHotkey v2.0
 
+; This script expects a CSV file named NeatClipboardConfig.csv in the same folder.
+; The file should contain data for displaying buttons in the UI.
+; Each row should be in the format
+; "Button Text",RowNumber,ColumnNumber
+; where "Button Text" will also be the text to be copied to clipboard,
+; and RowNumber and ColumnNumber are positional arguments for the UI to
+; arrange the buttons in a grid.
+
 ; Define a custom class for button configurations
 class ButtonConfig {
     __New(text, row, column) {

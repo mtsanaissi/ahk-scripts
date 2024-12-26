@@ -1,16 +1,12 @@
-﻿; #NoEnv  ; Recommended for performance and compatibility with future AutoHotkey releases.
-; #Warn  ; Enable warnings to assist with detecting common errors.
-; SetWorkingDir %A_ScriptDir%  ; Ensures a consistent starting directory.
-; SendMode Input  ; Recommended for new scripts due to its superior speed and reliability.
-
-; CTRL + SPACE -> set active window always on top
-; ^SPACE:: Winset, Alwaysontop, , A
+﻿#Requires AutoHotkey v2.0
 
 ; Remap Win+V to CTRL+'
+; I use this in conjunction with Ditto (clipboard manager)
 #v::^'
 
 ; CTRL + MB4 = previous media; CTRL + MB5 = next media.
-; Check before if your MB4 and MB5 are tied to something in the mouse software.
+; Check before if your MB4 and MB5 are tied to something in your mouse software.
+; In my case, MB4 and MB5 are for Volume_Down and Volume_Up.
 ^Volume_Down::
 {
   Send "{Media_Prev}"
@@ -20,7 +16,8 @@
   Send "{Media_Next}"
 }
 
-; CTRL+ALT+S -> gets the selected text and replaces newlines with commas and spaces
+; CTRL+ALT+S -> gets the selected text and replaces newlines with commas and spaces.
+; Very useful for working with SQL and converting a list of values into a comma-separated string
 ^!s::
 {
   A_Clipboard := ""
@@ -81,7 +78,7 @@ RestoreWindow()
 ;    DllCall("SetMenu", "Ptr", WinExist(), "Ptr", 0)
 ;    return
 
-; CTRL + SHIFT + Q -> replace www with old
+; CTRL + SHIFT + Q -> replace www with old (don't ask!)
 ^+Q::
 {
   Send "{F4}"
@@ -95,37 +92,5 @@ RestoreWindow()
   return
 }
 
-; Win + N para alternar janela entre monitores
-;#n::
-;{
-;  ;active_id := WinGetID("A")
-;  isDefaultPos := true
-;  if (isDefaultPos) {
-;    ; First click - save position, move to Display 2, and maximize
-;    WinGetPos &initialX, &initialY, &initialWidth, &initialHeight, "A"
-;    ;initialPos := initialX "|" initialY "|" initialWidth "|" initialHeight
-;    
-;    ;SysGet MonitorWorkArea, MonitorWorkArea, 2 ; Assuming Display 2 is index 2
-;    WinMove 0, 0, ,, "A"
-;    WinMaximize "A"
-;    isDefaultPos := false
-;  } else {
-;    ; Subsequent clicks - restore to initial position and size
-;    ;Loop Parse, initialPos, "|"
-;    ;{
-;    ;  if (A_Index = 1) {
-;    ;    initialX := A_LoopField
-;    ;  } else if (A_Index = 2) {
-;    ;    initialY := A_LoopField
-;    ;  } else if (A_Index = 3) {
-;    ;    initialWidth := A_LoopField
-;    ;  } else if (A_Index = 4) {
-;    ;    initialHeight := A_LoopField
-;    ;  }
-;    ;}
-;    
-;    WinMove initialX, initialY, initialWidth, initialHeight, "A"
-;    isDefaultPos := true
-;  }
-;  Return
-;}
+; CTRL + SPACE -> set active window always on top
+; ^SPACE:: Winset, Alwaysontop, , A
