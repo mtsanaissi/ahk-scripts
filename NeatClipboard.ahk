@@ -6,7 +6,7 @@
 ; "Button Text",RowNumber,ColumnNumber
 ; where "Button Text" will also be the text to be copied to clipboard,
 ; and RowNumber and ColumnNumber are positional arguments for the UI to
-; arrange the buttons in a grid.
+; arrange the buttons in a grid, starting for 1,1 (top left).
 
 ; Define a custom class for button configurations
 class ButtonConfig {
