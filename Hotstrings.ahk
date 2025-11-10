@@ -6,7 +6,7 @@
 
 ; If in VS Code or terminal window, expand npm commands
 #HotIf WinActive("ahk_exe Code.exe") || WinActive("ahk_exe WindowsTerminal.exe") || WinActive("ahk_exe ConEmu64.exe")
-:*:nf::npm run format
-:*:nt::npm test
-:*:nb::npm run build
+:*:nf`t::npm run format
+:*:nt`t::npm test
+:*:nb`t::npm run build
 #HotIf
