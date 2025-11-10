@@ -29,7 +29,6 @@
   Send "^v"
 }
 
-
 ; CTRL + F11 -> remove minimize and maximize buttons, set the window to be always on top, start a timer to test if it's minimized and then restore it
 ; CTRL + F12 -> undo the above
 global winid := 0
@@ -68,7 +67,31 @@ RestoreWindow()
   }
 }
 
-  
+
+global mouseLocked := false
+
+; Activate lock when LButton is held and Volume_Up is pressed
+#HotIf GetKeyState("LButton", "P")
+Volume_Up:: {
+    global mouseLocked
+    
+    ; Toggle lock on
+    if (!mouseLocked) {
+        mouseLocked := true
+        BlockInput "MouseMove"
+    }
+}
+#HotIf
+
+; Release lock when LButton is released
+~LButton up:: {
+    global mouseLocked
+    if (mouseLocked) {
+        mouseLocked := false
+        BlockInput "MouseMoveOff"
+    }
+}
+
 ;; Make windows fabulous?
 ;^F10::
 ;    WinGetTitle, currentWindow, A
