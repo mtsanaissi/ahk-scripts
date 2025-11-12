@@ -6,6 +6,7 @@
     :*:nf`t::npm run format
     :*:nt`t::npm test
     :*:nb`t::npm run build
+    :*:nd`t::npm run dev
     
     ; Git
     :*:gmo`t::git merge origin/
