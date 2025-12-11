@@ -1,0 +1,45 @@
+# Python & Venv
+title: Python
+displayOrder: 5
+items:
+  # Virtual Environment
+  - clip: "mkv"
+    description: "Create .venv, activate, upgrade pip (custom function)"
+    group: "VENV"
+  - clip: "python3 -m venv .venv"
+    description: "Create virtual environment"
+    group: "VENV"
+  - clip: "source .venv/bin/activate"
+    description: "Activate venv (Linux/Mac)"
+    group: "VENV"
+  - clip: ".venv\\Scripts\\activate"
+    description: "Activate venv (Windows)"
+    group: "VENV"
+  - clip: "deactivate"
+    description: "Deactivate current venv"
+    group: "VENV"
+  
+  # Pip
+  - clip: "python -m pip install --upgrade pip"
+    description: "Upgrade pip"
+    group: "PIP"
+  - clip: "pip install -r requirements.txt"
+    description: "Install from requirements"
+    group: "PIP"
+  - clip: "pip freeze > requirements.txt"
+    description: "Export requirements"
+    group: "PIP"
+  - clip: "pip install "
+    description: "Install package"
+    group: "PIP"
+  - clip: "pip uninstall "
+    description: "Uninstall package"
+    group: "PIP"
+  
+  # Execution
+  - clip: "python3 "
+    description: "Run Python script"
+    group: "RUN"
+  - clip: "python -m "
+    description: "Run module"
+    group: "RUN"

@@ -1,0 +1,58 @@
+# WSL & System
+title: WSL
+displayOrder: 6
+items:
+  # Quick Aliases
+  - clip: "c"
+    description: "clear"
+    group: "ALIASES"
+  
+  # System
+  - clip: "clear"
+    description: "Clear terminal"
+    group: "SYSTEM"
+  - clip: "pwd"
+    description: "Print working directory"
+    group: "SYSTEM"
+  - clip: "ls -la"
+    description: "List all files with details"
+    group: "SYSTEM"
+  - clip: "cd ~"
+    description: "Go to home directory"
+    group: "SYSTEM"
+  - clip: "cd -"
+    description: "Go to previous directory"
+    group: "SYSTEM"
+  
+  # File Operations
+  - clip: "mkdir -p "
+    description: "Create directory (with parents)"
+    group: "FILES"
+  - clip: "rm -rf "
+    description: "Remove directory recursively"
+    group: "FILES"
+  - clip: "cp -r  "
+    description: "Copy directory recursively"
+    group: "FILES"
+  - clip: "mv  "
+    description: "Move/rename file or directory"
+    group: "FILES"
+  
+  # Processes
+  - clip: "ps aux | grep "
+    description: "Find process by name"
+    group: "PROCESSES"
+  - clip: "kill -9 "
+    description: "Force kill process"
+    group: "PROCESSES"
+  - clip: "htop"
+    description: "Interactive process viewer"
+    group: "PROCESSES"
+  
+  # Network
+  - clip: "curl -I "
+    description: "Get HTTP headers"
+    group: "NETWORK"
+  - clip: "lsof -i :"
+    description: "Find process using port"
+    group: "NETWORK"

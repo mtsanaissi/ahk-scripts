@@ -1,0 +1,39 @@
+# AI / GenAI Tools
+title: AI
+displayOrder: 7
+items:
+  # Aliases
+  - clip: "codex"
+    description: "pnpm dlx @openai/codex@latest"
+    group: "ALIASES"
+  - clip: "gemini"
+    description: "Gemini CLI with auto Bitwarden auth"
+    group: "ALIASES"
+  
+  # CLI Tools
+  - clip: "pnpm dlx @openai/codex@latest"
+    description: "Run OpenAI Codex CLI"
+    group: "CLI"
+  - clip: "pnpm dlx @google/gemini-cli@latest"
+    description: "Run Google Gemini CLI"
+    group: "CLI"
+  - clip: "pnpm dlx @google/gemini-cli@latest chat"
+    description: "Start Gemini chat"
+    group: "CLI"
+  
+  # Bitwarden Auth
+  - clip: "bw_auth"
+    description: "Smart login/unlock Bitwarden vault"
+    group: "BITWARDEN"
+  - clip: "bw unlock --check"
+    description: "Check if vault is unlocked"
+    group: "BITWARDEN"
+  - clip: "bw login --check"
+    description: "Check if logged in"
+    group: "BITWARDEN"
+  - clip: "export BW_SESSION=$(bw unlock --raw)"
+    description: "Unlock and export session"
+    group: "BITWARDEN"
+  - clip: "bw get password \"\""
+    description: "Get password from vault"
+    group: "BITWARDEN"

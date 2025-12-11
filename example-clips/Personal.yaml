@@ -1,0 +1,45 @@
+# Personal Clips Example
+title: Personal
+displayOrder: 1
+items:
+  # Contact Info
+  - clip: "my.email@example.com"
+    description: "Personal email address"
+    group: "Contact"
+  - clip: "work.email@company.com"
+    description: "Work email address"
+    group: "Contact"
+  - clip: "+1 (555) 123-4567"
+    description: "Phone number"
+    group: "Contact"
+  - clip: "123 Main Street, City, ST 12345"
+    description: "Home address"
+    group: "Contact"
+  
+  # Email Templates
+  - clip: "Best regards,\nJohn Doe"
+    description: "Email signature"
+    group: "Templates"
+  - clip: "Thank you for your email. I will get back to you shortly."
+    description: "Auto-reply template"
+    group: "Templates"
+  - clip: "Please find attached the requested documents."
+    description: "Attachment note"
+    group: "Templates"
+  - clip: "I hope this email finds you well."
+    description: "Email opener"
+    group: "Templates"
+  - clip: "Let me know if you have any questions."
+    description: "Email closer"
+    group: "Templates"
+  
+  # Quick Responses
+  - clip: "Sounds good, thanks!"
+    description: "Quick acknowledgment"
+    group: "Quick Responses"
+  - clip: "I'll look into this and get back to you."
+    description: "Promise to follow up"
+    group: "Quick Responses"
+  - clip: "Could you please provide more details?"
+    description: "Request clarification"
+    group: "Quick Responses"

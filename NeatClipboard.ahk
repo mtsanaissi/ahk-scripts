@@ -1,258 +1,629 @@
 #Requires AutoHotkey v2.0
 
-; This script expects a CSV file named NeatClipboardConfig.csv in the same folder.
-; The file should contain data for displaying buttons in the UI.
-; Each row should be in the format
-; "Button Text",RowNumber,ColumnNumber
-; where "Button Text" will also be the text to be copied to clipboard,
-; and RowNumber and ColumnNumber are positional arguments for the UI to
-; arrange the buttons in a grid, starting for 1,1 (top left).
+; NeatClipboard - Clipboard Manager & Cheatsheet Visualizer
+; Version 2.0
+; 
+; Features:
+; - Load clips and cheatsheets from YAML files in the "clips" folder
+; - Tabbed interface with one tab per YAML file
+; - Visual grouping within each tab
+; - Centralized search with live filtering
+; - Result count badges on each tab
+; - Click to copy and optionally auto-paste
 
-; Define a custom class for button configurations
-class ButtonConfig {
-    __New(text, row, column) {
-        this.text := text
-        this.row := row
-        this.column := column
-    }
-}
+#Include "Lib\YamlParser.ahk"
 
-#HotIf WinActive("A")  ; Only trigger the hotkey when a window is active
-
-; Win + Alt + V hotkey
-#!v::CreateGUI()
-
-global maxRow := 0
-
-CreateGUI() {
-    global MyGui := Gui()
-    MyGui.Title := "Neat Clipboard"
-    MyGui.BackColor := "F0F0F0"
-
-    global buttonWidth := 200
-    global buttonHeight := 20
-    global columnWidth := buttonWidth + 60  ; Increased to accommodate edit and delete buttons
-    global rowHeight := buttonHeight + 5
-
-    ; Read button configurations from CSV file
-    global buttonConfigs := ReadButtonConfigsFromCSV("NeatClipboardConfig.csv")
+; ============================================================
+; Configuration
+; ============================================================
+global CONFIG := {
+    clipsFolder: A_ScriptDir "\clips",
+    autoPaste: true,  ; Toggle: automatically paste after copying
+    hotkey: "#!v",    ; Win + Alt + V
     
+    ; UI Colors (Dark theme)
+    bgColor: "1e1e2e",
+    bgColorLight: "2a2a3e",
+    accentColor: "89b4fa",
+    textColor: "cdd6f4",
+    textMuted: "6c7086",
+    borderColor: "45475a",
+    groupBg: "313244",
+    
+    ; UI Dimensions
+    windowWidth: 700,
+    windowHeight: 550,
+    searchBarHeight: 25,
+    tabHeight: 30,
+    itemHeight: 50,
+    padding: 10,
+    tabPadding: 70
+}
 
-    ; Check for duplicate row/column combinations
-    if (HasDuplicateRowColumn(buttonConfigs)) {
-        MsgBox("Error: CSV contains duplicate row/column combinations.")
+; ============================================================
+; Global State
+; ============================================================
+global MyGui := ""
+global TabData := Map()     ; TabName -> {items: [], filteredItems: [], displayOrder: n}
+global TabOrder := []       ; Array of tab names in display order
+global DisplayOrderItems := Map()  ; TabName -> Array of items in display order
+global TabControl := ""
+global SearchEdit := ""
+global ContentPanels := Map()  ; TabName -> Panel Control
+global AutoPasteCheckbox := ""
+global SearchDescCheckbox := ""  ; Toggle for searching in descriptions
+global LastActiveWindow := ""
+
+; ============================================================
+; Hotkey Registration
+; ============================================================
+#HotIf WinActive("A")
+#!v::ShowClipboardManager()
+
+; ============================================================
+; Main Functions
+; ============================================================
+
+ShowClipboardManager() {
+    global MyGui, LastActiveWindow
+    
+    ; Remember the active window before showing GUI
+    LastActiveWindow := WinGetID("A")
+    
+    ; Destroy existing GUI if any
+    if (MyGui != "") {
+        try MyGui.Destroy()
+    }
+    
+    ; Load all YAML files
+    LoadAllClips()
+    
+    ; Create and show GUI
+    CreateMainGUI()
+}
+
+LoadAllClips() {
+    global TabData, TabOrder, CONFIG
+    
+    TabData := Map()
+    TabOrder := []
+    
+    ; Find all YAML files in clips folder
+    if !DirExist(CONFIG.clipsFolder) {
+        DirCreate(CONFIG.clipsFolder)
         return
     }
-
-    ; Create buttons based on CSV configuration
-    for config in buttonConfigs {
-        CreateButtonGroup(config.text, (config.column - 1) * columnWidth + 10, (config.row - 1) * rowHeight + 10)
-    }
-
-    ; Add button for new text
-    ;maxIndex := buttonConfigs.Length() - 1
-    addBtn := MyGui.Add("Button", "x10 y" . (maxRow * rowHeight + 20) . " w100 h20", "➕ Add Text")
-    addBtn.OnEvent("Click", (*) => AddButtonClick())
-
-    MyGui.Show()
-}
-
-HasDuplicateRowColumn(buttonConfigs) {
-    for i, config1 in buttonConfigs {
-        for j, config2 in buttonConfigs {
-            if (i != j && config1.row == config2.row && config1.column == config2.column) {
-                return true
-            }
-        }
-    }
-    return false
-}
-
-CreateButtonGroup(text, x, y) {
-    btn := MyGui.Add("Button", Format("x{} y{} w{} h{}", x, y, buttonWidth, buttonHeight), text)
-    btn.OnEvent("Click", ButtonClick)
-
-    editBtn := MyGui.Add("Button", Format("x{} y{} w20 h{}", x + buttonWidth + 3, y, buttonHeight), "✏️")
-    editBtn.OnEvent("Click", (*) => EditButtonClick(text))
-
-    editBtn.GetPos(&editBtnX, &editBtnY, &editBtnW, &editBtnH)
-    deleteBtn := MyGui.Add("Button", Format("x{} y{} w20 h{}", editBtnX + editBtnW + 3, y, buttonHeight), "🗑️")
-    deleteBtn.OnEvent("Click", (*) => DeleteButtonClick(text))
-}
-
-ButtonClick(sender, info)
-{
-    btnText := sender.Text
-    A_Clipboard := btnText
-    sender.Gui.Hide()
-    Send "^v"
-}
-
-EditButtonClick(text)
-{
-    editGui := Gui()
-    editGui.Title := "Edit Text"
-    editGui.Add("Text", "x10 y10", "Edit the text:")
-    editBox := editGui.Add("Edit", "x10 y30 w300 h100 vEditedText", text)
-    saveBtn := editGui.Add("Button", "x10 y140 w100", "Save")
-    saveBtn.OnEvent("Click", (*) => SaveEditedText(editGui, text))
-    editGui.Show()
-}
-
-SaveEditedText(editGui, oldText)
-{
-    newText := editGui.Submit().EditedText
-    UpdateCSVEntry(oldText, newText)
-    editGui.Destroy()
-    RefreshGUI()
-}
-
-DeleteButtonClick(text)
-{
-    result := MsgBox("Are you sure you want to delete this entry?", "Confirm Deletion", 4)
-    if (result == "Yes") {
-        DeleteCSVEntry(text)
-        RefreshGUI()
-    }
-}
-
-AddButtonClick()
-{
-    addGui := Gui()
-    addGui.Title := "Add New Text"
-    addGui.Add("Text", "x10 y10", "Text:")
-    textBox := addGui.Add("Edit", "x10 y30 w300 h20 vNewText")
-    addGui.Add("Text", "x10 y60", "Row:")
-    rowBox := addGui.Add("Edit", "x10 y80 w50 h20 vNewRow")
-    addGui.Add("Text", "x10 y110", "Column:")
-    columnBox := addGui.Add("Edit", "x10 y130 w50 h20 vNewColumn")
-    saveBtn := addGui.Add("Button", "x10 y160 w100", "Save")
-    saveBtn.OnEvent("Click", (*) => SaveNewText(addGui))
-    addGui.Show()
-}
-
-SaveNewText(addGui)
-{
-    newText := addGui.Submit().NewText
-    newRow := addGui.Submit().NewRow
-    newColumn := addGui.Submit().NewColumn
-
-    ; Basic validation
-    if (newText == "" || newRow == "" || newColumn == "") {
-        MsgBox("Please fill in all fields.")
-        return
-    }
-
-    AppendToCSV(newText, newRow, newColumn)
-    addGui.Destroy()
-    RefreshGUI()
-}
-
-UpdateCSVEntry(oldText, newText)
-{
-    fileContent := FileRead("NeatClipboardConfig.csv")
-    lines := StrSplit(fileContent, "`n", "`r")
-    newLines := []
-
-    for line in lines {
-        if (line != "") {
-            fields := StrSplit(line, ",")
-            if (fields.Length >= 3 && Trim(fields[1], '`"') == oldText) {
-                newLines.Push("`"" . newText . "`"," . fields[2] . "," . fields[3])
-            } else {
-                newLines.Push(line)
-            }
-        }
-    }
-
-    FileDelete("NeatClipboardConfig.csv")
-    FileAppend(StrJoin(newLines, "`n"), "NeatClipboardConfig.csv", "UTF-8")
-}
-
-DeleteCSVEntry(text)
-{
-    fileContent := FileRead("NeatClipboardConfig.csv")
-    lines := StrSplit(fileContent, "`n", "`r")
-    newLines := []
-
-    for line in lines {
-        if (line != "") {
-            fields := StrSplit(line, ",")
-            if (fields.Length >= 3 && Trim(fields[1], '`"') != text) {
-                newLines.Push(line)
-            }
-        }
-    }
-
-    FileDelete("NeatClipboardConfig.csv")
-    FileAppend(StrJoin(newLines, "`n"), "NeatClipboardConfig.csv", "UTF-8")
-}
-
-AppendToCSV(text, row, column)
-{
-    FileAppend("`n`"" . text . "`"," . row . "," . column, "NeatClipboardConfig.csv", "UTF-8")
-}
-
-RefreshGUI()
-{
-    if (IsSet(MyGui)) {
-        MyGui.Destroy()
-    }
-    CreateGUI()
-}
-
-ReadButtonConfigsFromCSV(filename)
-{
-    buttonConfigs := []
-    global maxRow
-
-    try {
-        fileContent := FileRead(filename)
-        lines := StrSplit(fileContent, "`n", "`r")
+    
+    ; Temporary array for sorting
+    tempTabs := []
+    
+    Loop Files, CONFIG.clipsFolder "\*.yaml" {
+        yamlPath := A_LoopFileFullPath
+        fileName := StrReplace(A_LoopFileName, ".yaml", "")
         
-        for line in lines {
-            if (line != "") {
-                fields := StrSplit(line, ",")
-                if (fields.Length >= 3) {
-                    text := ProcessText(Trim(fields[1], '`"'))
-                    row := Integer(fields[2])
-                    column := Integer(fields[3])
-                    buttonConfigs.Push(ButtonConfig(text, row, column))
+        parsed := YamlParser.ParseFile(yamlPath)
+        
+        if (parsed.HasOwnProp("error")) {
+            continue
+        }
+        
+        tabName := parsed.title != "" ? parsed.title : fileName
+        displayOrder := parsed.HasOwnProp("displayOrder") ? parsed.displayOrder : 999
+        
+        TabData[tabName] := {
+            items: parsed.items,
+            filteredItems: parsed.items.Clone(),
+            displayOrder: displayOrder
+        }
+        
+        tempTabs.Push({name: tabName, order: displayOrder})
+    }
+    
+    ; Sort tabs by displayOrder
+    n := tempTabs.Length
+    Loop n - 1 {
+        i := A_Index
+        Loop n - i {
+            j := A_Index
+            if (tempTabs[j].order > tempTabs[j + 1].order) {
+                temp := tempTabs[j]
+                tempTabs[j] := tempTabs[j + 1]
+                tempTabs[j + 1] := temp
+            }
+        }
+    }
+    
+    ; Build sorted tab order array
+    for tab in tempTabs {
+        TabOrder.Push(tab.name)
+    }
+}
 
-                    if (row > maxRow)
-                        maxRow := row
+CreateMainGUI() {
+    global MyGui, TabControl, SearchEdit, ContentPanels, BadgeTexts, AutoPasteCheckbox, CONFIG
+    
+    ContentPanels := Map()
+    BadgeTexts := Map()
+    
+    ; Create main window
+    MyGui := Gui("+Resize", "NeatClipboard")
+    MyGui.BackColor := CONFIG.bgColor
+    MyGui.SetFont("s10 c" CONFIG.textColor, "Segoe UI")
+    MyGui.OnEvent("Close", (*) => MyGui.Destroy())
+    MyGui.OnEvent("Escape", (*) => MyGui.Destroy())
+    MyGui.OnEvent("Size", OnGuiResize)
+    
+    ; ========== Top Bar ==========
+    ; Search icon and edit
+    MyGui.SetFont("s12 c" CONFIG.textMuted)
+    MyGui.Add("Text", "x" CONFIG.padding " y" (CONFIG.padding + 5) " w20 h25", "🔍")
+    
+    MyGui.SetFont("s10 c" CONFIG.textColor, "Segoe UI")
+    SearchEdit := MyGui.Add("Edit", 
+        "x35 y" CONFIG.padding " w" (CONFIG.windowWidth - 340) " h" CONFIG.searchBarHeight " Background" CONFIG.bgColorLight,
+        "")
+    SearchEdit.OnEvent("Change", OnSearchChange)
+    
+    ; Search in descriptions toggle
+    SearchDescCheckbox := MyGui.Add("Checkbox", 
+        "x" (CONFIG.windowWidth - 290) " y" (CONFIG.padding + 5) " w130 c" CONFIG.textMuted " Checked",
+        "+ descriptions")
+    SearchDescCheckbox.OnEvent("Click", OnSearchDescToggle)
+    
+    ; Auto-paste toggle
+    AutoPasteCheckbox := MyGui.Add("Checkbox", 
+        "x" (CONFIG.windowWidth - 130) " y" (CONFIG.padding + 5) " w120 c" CONFIG.textMuted " Checked" CONFIG.autoPaste,
+        "Auto-paste")
+    AutoPasteCheckbox.OnEvent("Click", OnAutoPasteToggle)
+    
+    ; ========== Tab Control ==========
+    tabY := CONFIG.padding + CONFIG.searchBarHeight + 10
+    
+    if (TabOrder.Length = 0) {
+        MyGui.SetFont("s11 c" CONFIG.textMuted)
+        MyGui.Add("Text", "x" CONFIG.padding " y100 w" (CONFIG.windowWidth - 2*CONFIG.padding) " Center", 
+            "No clips found.`n`nAdd YAML files to the 'clips' folder.")
+        MyGui.Show("w" CONFIG.windowWidth " h200")
+        return
+    }
+    
+    ; Build tab list with initial counts - using sorted TabOrder
+    tabList := ""
+    for tabName in TabOrder {
+        count := TabData[tabName].items.Length
+        tabList .= tabName " (" count ")|"
+    }
+    tabList := RTrim(tabList, "|")
+    
+    TabControl := MyGui.Add("Tab3", 
+        "x" CONFIG.padding " y" tabY " w" (CONFIG.windowWidth - 2*CONFIG.padding) " h" (CONFIG.windowHeight - tabY - CONFIG.padding) " Background" CONFIG.bgColorLight " vTabCtrl",
+        StrSplit(tabList, "|"))
+    TabControl.OnEvent("Change", OnTabChange)
+    
+    ; Create content for each tab
+    ; Tab3 content area: need to position ListView INSIDE each tab's display area
+    ; The tab headers take about 25px, so content starts below that
+    tabContentX := CONFIG.padding + 5
+    tabContentY := tabY + 28  ; Below tab headers
+    lvWidth := CONFIG.windowWidth - 2*CONFIG.padding - 15
+    lvHeight := CONFIG.windowHeight - tabContentY - CONFIG.padding - 10
+    
+    tabIndex := 0
+    for tabName in TabOrder {
+        tabIndex++
+        count := TabData[tabName].items.Length
+        TabControl.UseTab(tabIndex)  ; Use index instead of name since names now have counts
+        CreateTabContent(tabName, tabContentX, tabContentY, lvWidth, lvHeight)
+    }
+    
+    TabControl.UseTab()  ; Reset to no specific tab
+    
+    ; Update badges for initial state
+    UpdateAllBadges()
+    
+    ; Register keyboard shortcuts for this GUI
+    RegisterGuiHotkeys()
+    
+    ; Show
+    MyGui.Show("w" CONFIG.windowWidth " h" CONFIG.windowHeight)
+    SearchEdit.Focus()
+}
+
+RegisterGuiHotkeys() {
+    global MyGui
+    
+    ; Ctrl+F = Focus search and select all
+    HotIfWinActive("ahk_id " MyGui.Hwnd)
+    Hotkey("^f", (*) => FocusSearch(), "On")
+    
+    ; Ctrl+1-9 = Switch to tab 1-9
+    ; Use Bind() to capture the value, not reference
+    Loop 9 {
+        Hotkey("^" A_Index, SwitchToTab.Bind(A_Index), "On")
+    }
+    
+    ; Alt+1-9 = Activate entry 1-9
+    Loop 9 {
+        Hotkey("!" A_Index, ActivateEntry.Bind(A_Index), "On")
+    }
+    
+    HotIf()  ; Reset context
+}
+
+FocusSearch() {
+    global SearchEdit
+    SearchEdit.Focus()
+    SendInput("^a")  ; Select all text
+}
+
+SwitchToTab(tabNum, *) {
+    global TabControl, TabOrder
+    
+    if (tabNum <= TabOrder.Length) {
+        TabControl.Choose(tabNum)
+    }
+}
+
+ActivateEntry(entryNum, *) {
+    global TabOrder, TabControl, DisplayOrderItems
+    
+    ; Get current tab
+    tabIdx := TabControl.Value
+    if (tabIdx < 1 || tabIdx > TabOrder.Length)
+        return
+    
+    currentTab := TabOrder[tabIdx]
+    
+    ; Use DisplayOrderItems which matches the actual display order
+    if !DisplayOrderItems.Has(currentTab)
+        return
+    
+    items := DisplayOrderItems[currentTab]
+    
+    ; Direct access by index
+    if (entryNum >= 1 && entryNum <= items.Length) {
+        CopyAndPasteItem(items[entryNum])
+    }
+}
+
+CopyAndPasteItem(item) {
+    global MyGui, LastActiveWindow, AutoPasteCheckbox
+    
+    ; Save values before destroying GUI
+    shouldAutoPaste := AutoPasteCheckbox.Value
+    targetWindow := LastActiveWindow
+    
+    A_Clipboard := item.clip
+    MyGui.Destroy()
+    
+    ; Auto-paste if enabled
+    if (shouldAutoPaste && targetWindow) {
+        try {
+            WinActivate(targetWindow)
+            Sleep(50)
+            Send("^v")
+        }
+    }
+}
+
+CreateTabContent(tabName, x, y, lvWidth, lvHeight) {
+    global MyGui, ContentPanels, TabData, CONFIG
+    
+    ; Create a ListView for this tab's content with absolute positioning
+    lv := MyGui.Add("ListView", 
+        "x" x " y" y " w" lvWidth " h" lvHeight " Background" CONFIG.bgColor " c" CONFIG.textColor " -Hdr +Report +LV0x10000",
+        ["Clip", "Description", "Group"])
+    
+    lv.OnEvent("DoubleClick", OnItemDoubleClick)
+    lv.OnEvent("Click", OnItemClick)
+    
+    ; Set column widths proportionally
+    lv.ModifyCol(1, Integer(lvWidth * 0.38))
+    lv.ModifyCol(2, Integer(lvWidth * 0.50))
+    lv.ModifyCol(3, Integer(lvWidth * 0.10))
+    
+    ContentPanels[tabName] := lv
+    
+    ; Populate with items
+    RefreshTabContent(tabName)
+}
+
+RefreshTabContent(tabName) {
+    global ContentPanels, TabData, DisplayOrderItems
+    
+    if !ContentPanels.Has(tabName) || !TabData.Has(tabName)
+        return
+    
+    lv := ContentPanels[tabName]
+    lv.Delete()
+    
+    data := TabData[tabName]
+    items := data.filteredItems
+    
+    ; Build display order (same logic as the display loop)
+    displayItems := []
+    
+    ; Group items by group name
+    groups := Map()
+    ungrouped := []
+    
+    for item in items {
+        groupName := item.group
+        if (groupName = "") {
+            ungrouped.Push(item)
+        } else {
+            if !groups.Has(groupName)
+                groups[groupName] := []
+            groups[groupName].Push(item)
+        }
+    }
+    
+    ; Get sorted group names
+    groupNames := []
+    for gn, _ in groups {
+        groupNames.Push(gn)
+    }
+    groupNames := SortArray(groupNames)
+    
+    ; Build display order: grouped items first, then ungrouped
+    for groupName in groupNames {
+        for item in groups[groupName] {
+            displayItems.Push(item)
+        }
+    }
+    for item in ungrouped {
+        displayItems.Push(item)
+    }
+    
+    ; Store display order for this tab
+    DisplayOrderItems[tabName] := displayItems
+    
+    ; Now render the ListView with index numbers
+    entryNum := 0
+    
+    ; Add grouped items
+    for groupName in groupNames {
+        ; Add group header
+        lv.Add("", "▸ " groupName, "", "")
+        
+        for item in groups[groupName] {
+            entryNum++
+            clipText := StrLen(item.clip) > 40 ? SubStr(item.clip, 1, 40) "..." : item.clip
+            clipText := StrReplace(clipText, "`n", " ↵ ")
+            
+            ; Add index prefix for first 9 entries
+            indexPrefix := entryNum <= 9 ? "[" entryNum "] " : "    "
+            lv.Add("", indexPrefix clipText, item.description, "")
+        }
+    }
+    
+    ; Add ungrouped items
+    if (ungrouped.Length > 0) {
+        if (groupNames.Length > 0)
+            lv.Add("", "▸ General", "", "")
+        
+        for item in ungrouped {
+            entryNum++
+            clipText := StrLen(item.clip) > 40 ? SubStr(item.clip, 1, 40) "..." : item.clip
+            clipText := StrReplace(clipText, "`n", " ↵ ")
+            
+            ; Add index prefix for first 9 entries
+            indexPrefix := entryNum <= 9 ? "[" entryNum "] " : "    "
+            prefix := groupNames.Length > 0 ? "   " : ""
+            lv.Add("", indexPrefix prefix clipText, item.description, "")
+        }
+    }
+}
+
+; ============================================================
+; Event Handlers
+; ============================================================
+
+OnGuiResize(thisGui, MinMax, Width, Height) {
+    global SearchEdit, TabControl, ContentPanels, AutoPasteCheckbox, CONFIG
+    
+    if (MinMax = -1)  ; Window minimized
+        return
+    
+    ; Suspend redrawing to prevent flashing
+    for tabName, lv in ContentPanels {
+        try SendMessage(0x000B, 0, 0, lv)  ; WM_SETREDRAW = FALSE
+    }
+    
+    ; Update search bar width
+    try SearchEdit.Move(,, Width - 180)
+    
+    ; Update auto-paste checkbox position
+    try AutoPasteCheckbox.Move(Width - 130)
+    
+    ; Calculate new positions
+    tabY := CONFIG.padding + CONFIG.searchBarHeight + 10
+    
+    ; Update tab control size
+    try TabControl.Move(,, Width - 2*CONFIG.padding, Height - tabY - CONFIG.padding)
+    
+    ; Update all ListViews
+    tabContentY := tabY + 28
+    lvWidth := Width - 2*CONFIG.padding - 15
+    lvHeight := Height - tabContentY - CONFIG.padding - 10
+    
+    for tabName, lv in ContentPanels {
+        try {
+            lv.Move(,, lvWidth, lvHeight)
+            lv.ModifyCol(1, Integer(lvWidth * 0.38))
+            lv.ModifyCol(2, Integer(lvWidth * 0.50))
+            lv.ModifyCol(3, Integer(lvWidth * 0.10))
+        }
+    }
+    
+    ; Resume redrawing
+    for tabName, lv in ContentPanels {
+        try {
+            SendMessage(0x000B, 1, 0, lv)  ; WM_SETREDRAW = TRUE
+            WinRedraw(lv)
+        }
+    }
+}
+
+OnSearchChange(ctrl, *) {
+    global TabData, SearchEdit, SearchDescCheckbox
+    
+    searchText := StrLower(Trim(SearchEdit.Value))
+    searchInDesc := SearchDescCheckbox.Value
+    
+    for tabName, data in TabData {
+        if (searchText = "") {
+            data.filteredItems := data.items.Clone()
+        } else {
+            data.filteredItems := []
+            tabNameLower := StrLower(tabName)
+            
+            for item in data.items {
+                ; Search in clip and group always, description only if checkbox is checked
+                found := InStr(StrLower(item.clip), searchText) ||
+                         InStr(StrLower(item.group), searchText) ||
+                         InStr(tabNameLower, searchText)
+                
+                ; Optionally search in descriptions
+                if (!found && searchInDesc) {
+                    found := InStr(StrLower(item.description), searchText)
+                }
+                
+                if (found) {
+                    data.filteredItems.Push(item)
                 }
             }
         }
-    } catch Error as err {
-        MsgBox("Error reading CSV file: " . err.Message)
+        RefreshTabContent(tabName)
     }
     
-    return buttonConfigs
+    UpdateAllBadges()
 }
 
-ProcessText(text)
-{
-    if (RegExMatch(text, "s){GetCurrentDate\((.*?)\)}", &match)) {
-        format := match[1]  ; Extract the format from the match
-        date := GetCurrentDate(format)
-        ; Replace the {GetCurrentDate(format)} with the actual date
-        return StrReplace(text, match[0], date)
-    }
-    return text
+OnSearchDescToggle(ctrl, *) {
+    ; Re-run search with new setting
+    OnSearchChange(ctrl)
 }
 
-GetCurrentDate(format) {
-    return FormatTime(A_Now, format)
+OnTabChange(ctrl, *) {
+    ; Tab changed - content is already rendered
 }
 
-StrJoin(array, separator) {
-    result := ""
-    for index, element in array {
-        if (index > 1) {
-            result .= separator
+OnItemClick(ctrl, rowNum) {
+    if (rowNum = 0)
+        return
+    
+    ; Get the clicked row text
+    clipText := ctrl.GetText(rowNum, 1)
+    
+    ; Skip group headers
+    if (SubStr(clipText, 1, 2) = "▸ ")
+        return
+    
+    ; Find the actual item
+    CopyItemByDisplayText(ctrl, clipText)
+}
+
+OnItemDoubleClick(ctrl, rowNum) {
+    OnItemClick(ctrl, rowNum)
+}
+
+CopyItemByDisplayText(lv, displayText) {
+    global TabData, TabOrder, TabControl, MyGui, LastActiveWindow, AutoPasteCheckbox
+    
+    ; Get current tab index and find the tab name from TabOrder
+    tabIdx := TabControl.Value
+    
+    if (tabIdx < 1 || tabIdx > TabOrder.Length)
+        return
+    
+    currentTab := TabOrder[tabIdx]
+    items := TabData[currentTab].filteredItems
+    
+    ; Clean up display text for comparison
+    displayText := Trim(displayText)
+    displayText := RegExReplace(displayText, "^\s+", "")  ; Remove leading spaces
+    
+    ; Find matching item
+    for item in items {
+        clipText := StrLen(item.clip) > 40 ? SubStr(item.clip, 1, 40) "..." : item.clip
+        clipText := StrReplace(clipText, "`n", " ↵ ")
+        
+        if (InStr(displayText, clipText) || InStr(clipText, displayText)) {
+            ; Save values before destroying GUI
+            shouldAutoPaste := AutoPasteCheckbox.Value
+            targetWindow := LastActiveWindow
+            
+            A_Clipboard := item.clip
+            MyGui.Destroy()
+            
+            ; Auto-paste if enabled
+            if (shouldAutoPaste && targetWindow) {
+                try {
+                    WinActivate(targetWindow)
+                    Sleep(50)
+                    Send("^v")
+                }
+            }
+            return
         }
-        result .= element
     }
-    return result
+}
+
+OnAutoPasteToggle(ctrl, *) {
+    global CONFIG
+    CONFIG.autoPaste := ctrl.Value
+}
+
+UpdateAllBadges() {
+    global TabData, TabOrder, TabControl
+    
+    ; Update each tab's text to show filtered count using Windows API
+    ; TCM_SETITEM = 0x1306, TCIF_TEXT = 0x0001
+    static TCM_SETITEM := 0x133D  ; TCM_SETITEMW for Unicode
+    static TCIF_TEXT := 0x0001
+    
+    tabIndex := 0
+    for tabName in TabOrder {
+        count := TabData[tabName].filteredItems.Length
+        newTitle := tabName " (" count ")"
+        
+        ; Create TCITEM structure
+        ; struct { UINT mask; DWORD dwState; DWORD dwStateMask; LPWSTR pszText; int cchTextMax; int iImage; LPARAM lParam; }
+        tcItemSize := A_PtrSize * 3 + 4 * 4  ; Adjust for 32/64-bit
+        tcItem := Buffer(tcItemSize, 0)
+        
+        ; Set mask to TCIF_TEXT
+        NumPut("UInt", TCIF_TEXT, tcItem, 0)
+        
+        ; Set text pointer (offset depends on architecture)
+        textOffset := 8 + A_PtrSize  ; After mask, dwState, dwStateMask
+        NumPut("Ptr", StrPtr(newTitle), tcItem, textOffset)
+        
+        ; Send message to update tab text
+        try SendMessage(TCM_SETITEM, tabIndex, tcItem.Ptr, TabControl)
+        
+        tabIndex++
+    }
+}
+
+; ============================================================
+; Utility Functions
+; ============================================================
+
+SortArray(arr) {
+    ; Simple bubble sort for string array using StrCompare
+    n := arr.Length
+    Loop n - 1 {
+        i := A_Index
+        Loop n - i {
+            j := A_Index
+            if (StrCompare(arr[j], arr[j + 1]) > 0) {
+                temp := arr[j]
+                arr[j] := arr[j + 1]
+                arr[j + 1] := temp
+            }
+        }
+    }
+    return arr
 }
