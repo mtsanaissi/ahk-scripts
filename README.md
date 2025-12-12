@@ -22,6 +22,13 @@ A clipboard helper and cheatsheet manager. Press `Win + Alt + V` to open.
 title: Tab Name
 displayOrder: 1  # Lower = appears first
 items:
+  # Option A: group container (avoids repeating group on each clip)
+  - group: "Optional Group Name"
+    items:
+      - clip: "text to copy"
+        description: "what this clip is for"
+
+  # Option B: classic per-clip group (still supported)
   - clip: "text to copy"
     description: "what this clip is for"
     group: "Optional Group Name"

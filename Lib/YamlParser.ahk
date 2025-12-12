@@ -1,6 +1,10 @@
 ; Simple YAML Parser for AHK v2
 ; Designed for parsing clip/cheatsheet configuration files
-; Supports: title, items array with clip, description, group properties
+; Supports:
+; - title, displayOrder
+; - items:
+;   - clip items: {clip, description, group?}
+;   - group items: {group, items: [ {clip, description, group?}, ... ]}
 
 class YamlParser {
     
@@ -27,7 +31,10 @@ class YamlParser {
         result := {title: "", displayOrder: 999, items: []}
         lines := StrSplit(content, "`n", "`r")
         
-        currentItem := ""
+        currentItem := ""            ; current top-level item
+        currentItemType := ""        ; "unknown" | "clip" | "group"
+        currentGroupItem := ""       ; current nested clip item inside a group
+        inGroupItems := false
         inItems := false
         
         for lineNum, line in lines {
@@ -60,30 +67,103 @@ class YamlParser {
             ; Parse items
             if (inItems) {
                 ; New item starts with "- "
-                if (RegExMatch(trimmedLine, "^-\s+(.*)$", &match)) {
-                    ; Save previous item if exists
-                    if (currentItem != "") {
-                        result.items.Push(currentItem)
-                    }
-                    currentItem := {clip: "", description: "", group: ""}
-                    
-                    ; Check if there's inline content after the dash
+                if (RegExMatch(trimmedLine, "^-\s*(.*)$", &match)) {
                     remaining := Trim(match[1])
-                    if (remaining != "") {
-                        this.ParseKeyValue(remaining, currentItem)
+                    
+                    ; Top-level list item (under items:)
+                    if (indent >= 1 && indent < 3) {
+                        ; Finalize previous top-level item
+                        if (currentItem != "") {
+                            if (currentItemType = "group" && currentGroupItem != "") {
+                                currentItem.items.Push(currentGroupItem)
+                                currentGroupItem := ""
+                            }
+                            result.items.Push(currentItem)
+                        }
+                        
+                        ; Start a new top-level item; decide its type from the first key.
+                        currentItem := {clip: "", description: "", group: "", items: []}
+                        currentItemType := "unknown"
+                        inGroupItems := false
+                        currentGroupItem := ""
+                        
+                        if (remaining != "") {
+                            if (RegExMatch(remaining, "i)^group:\s*"))
+                                currentItemType := "group"
+                            else if (RegExMatch(remaining, "i)^clip:\s*"))
+                                currentItemType := "clip"
+                            this.ParseKeyValue(remaining, currentItem)
+                        }
+                        continue
                     }
-                    continue
+                    
+                    ; Nested list item inside a group items:
+                    if (indent >= 3 && currentItemType = "group" && inGroupItems) {
+                        if (currentGroupItem != "") {
+                            currentItem.items.Push(currentGroupItem)
+                        }
+                        currentGroupItem := {clip: "", description: "", group: ""}
+                        if (remaining != "")
+                            this.ParseKeyValue(remaining, currentGroupItem)
+                        continue
+                    }
                 }
                 
-                ; Item properties (indented under the dash)
-                if (currentItem != "" && indent >= 2) {
-                    this.ParseKeyValue(trimmedLine, currentItem)
+                ; Group item: detect "items:" block, then parse nested clip properties.
+                if (currentItemType = "group") {
+                    if (indent = 2 && RegExMatch(trimmedLine, "i)^items:\s*$")) {
+                        inGroupItems := true
+                        continue
+                    }
+                    
+                    if (inGroupItems) {
+                        if (currentGroupItem != "" && indent >= 4) {
+                            this.ParseKeyValue(trimmedLine, currentGroupItem)
+                        }
+                    } else {
+                        ; Group header properties (e.g., group:)
+                        if (currentItem != "" && indent >= 2) {
+                            this.ParseKeyValue(trimmedLine, currentItem)
+                        }
+                    }
+                } else {
+                    ; Resolve unknown top-level item type based on first key line.
+                    if (currentItemType = "unknown" && indent >= 2) {
+                        if (RegExMatch(trimmedLine, "i)^group:\s*"))
+                            currentItemType := "group"
+                        else if (RegExMatch(trimmedLine, "i)^clip:\s*"))
+                            currentItemType := "clip"
+                    }
+                    
+                    if (currentItemType = "group") {
+                        if (indent = 2 && RegExMatch(trimmedLine, "i)^items:\s*$")) {
+                            inGroupItems := true
+                            continue
+                        }
+                        if (inGroupItems) {
+                            if (currentGroupItem != "" && indent >= 4) {
+                                this.ParseKeyValue(trimmedLine, currentGroupItem)
+                            }
+                        } else if (currentItem != "" && indent >= 2) {
+                            this.ParseKeyValue(trimmedLine, currentItem)
+                        }
+                        continue
+                    }
+                    
+                    ; Clip item properties (indented under the dash)
+                    if (currentItem != "" && indent >= 2) {
+                        this.ParseKeyValue(trimmedLine, currentItem)
+                    }
                 }
             }
         }
         
         ; Don't forget the last item
         if (currentItem != "") {
+            if (currentItemType = "group" && currentGroupItem != "") {
+                currentItem.items.Push(currentGroupItem)
+                currentGroupItem := ""
+            }
             result.items.Push(currentItem)
         }
         

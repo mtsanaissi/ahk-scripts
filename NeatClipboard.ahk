@@ -110,10 +110,11 @@ LoadAllClips() {
         
         tabName := parsed.title != "" ? parsed.title : fileName
         displayOrder := parsed.HasOwnProp("displayOrder") ? parsed.displayOrder : 999
+        normalizedItems := NormalizeYamlItems(parsed.HasOwnProp("items") ? parsed.items : [])
         
         TabData[tabName] := {
-            items: parsed.items,
-            filteredItems: parsed.items.Clone(),
+            items: normalizedItems,
+            filteredItems: normalizedItems.Clone(),
             displayOrder: displayOrder
         }
         
@@ -138,6 +139,50 @@ LoadAllClips() {
     for tab in tempTabs {
         TabOrder.Push(tab.name)
     }
+}
+
+NormalizeYamlItems(items) {
+    normalized := []
+    if !(items is Array)
+        return normalized
+    
+    for _, item in items {
+        if !(item is Object)
+            continue
+        
+        ; Classic/flat clip item always wins if present.
+        clipText := item.HasOwnProp("clip") ? item.clip : ""
+        if (Trim(clipText) != "") {
+            normalized.Push({
+                clip: clipText,
+                description: item.HasOwnProp("description") ? item.description : "",
+                group: item.HasOwnProp("group") ? item.group : ""
+            })
+            continue
+        }
+        
+        ; Group container format: {group: "...", items: [ {clip, description, group?}, ... ]}
+        if (item.HasOwnProp("items") && (item.items is Array)) {
+            outerGroup := item.HasOwnProp("group") ? item.group : ""
+            for _, subItem in item.items {
+                if !(subItem is Object)
+                    continue
+                clipText := subItem.HasOwnProp("clip") ? subItem.clip : ""
+                if (Trim(clipText) = "")
+                    continue
+                
+                clipGroup := subItem.HasOwnProp("group") && subItem.group != "" ? subItem.group : outerGroup
+                normalized.Push({
+                    clip: clipText,
+                    description: subItem.HasOwnProp("description") ? subItem.description : "",
+                    group: clipGroup
+                })
+            }
+            continue
+        }
+    }
+    
+    return normalized
 }
 
 CreateMainGUI() {
