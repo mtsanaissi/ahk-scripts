@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#SingleInstance Force
 
 ; NeatClipboard - Clipboard Manager & Cheatsheet Visualizer
 ; Version 2.0
@@ -140,7 +141,7 @@ LoadAllClips() {
 }
 
 CreateMainGUI() {
-    global MyGui, TabControl, SearchEdit, ContentPanels, BadgeTexts, AutoPasteCheckbox, CONFIG
+    global MyGui, TabControl, SearchEdit, ContentPanels, BadgeTexts, AutoPasteCheckbox, SearchDescCheckbox, CONFIG
     
     ContentPanels := Map()
     BadgeTexts := Map()
@@ -160,7 +161,7 @@ CreateMainGUI() {
     
     MyGui.SetFont("s10 c" CONFIG.textColor, "Segoe UI")
     SearchEdit := MyGui.Add("Edit", 
-        "x35 y" CONFIG.padding " w" (CONFIG.windowWidth - 340) " h" CONFIG.searchBarHeight " Background" CONFIG.bgColorLight,
+        "x35 y" CONFIG.padding " w" (CONFIG.windowWidth - 350) " h" CONFIG.searchBarHeight " Background" CONFIG.bgColorLight,
         "")
     SearchEdit.OnEvent("Change", OnSearchChange)
     
@@ -286,6 +287,91 @@ ActivateEntry(entryNum, *) {
     }
 }
 
+; ============================================================
+; Dynamic Clip Functions
+; ============================================================
+
+/**
+ * Process dynamic function calls in clip text
+ * Supports patterns like: {FunctionName(args)}
+ * @param clipText - The raw clip text that may contain function calls
+ * @returns Processed text with function calls replaced by their results
+ */
+ProcessDynamicClip(clipText) {
+    result := clipText
+    
+    ; Match pattern: {FunctionName(args)} or {FunctionName()}
+    pos := 1
+    while (pos := RegExMatch(result, "\{(\w+)\(([^)]*)\)\}", &match, pos)) {
+        funcName := match[1]
+        funcArgs := match[2]
+        
+        ; Execute the appropriate function
+        replacement := ""
+        switch funcName {
+            case "GetCurrentDate":
+                replacement := GetCurrentDate(funcArgs)
+            case "GetCurrentTime":
+                replacement := GetCurrentTime(funcArgs)
+            case "GetCurrentDateTime":
+                replacement := GetCurrentDateTime(funcArgs)
+            case "GetClipboard":
+                replacement := A_Clipboard
+            case "GetUsername":
+                replacement := A_UserName
+            case "GetComputerName":
+                replacement := A_ComputerName
+            default:
+                ; Unknown function, leave as-is
+                pos += StrLen(match[0])
+                continue
+        }
+        
+        ; Replace the match with the result
+        result := SubStr(result, 1, pos - 1) . replacement . SubStr(result, pos + StrLen(match[0]))
+        pos += StrLen(replacement)
+    }
+    
+    return result
+}
+
+/**
+ * Get the current date formatted according to the specified format
+ * @param format - Date format string (e.g., "yyyy-MM-dd", "dd/MM/yyyy")
+ * @returns Formatted date string
+ */
+GetCurrentDate(format := "yyyy-MM-dd") {
+    if (format = "")
+        format := "yyyy-MM-dd"
+    return FormatTime(A_Now, format)
+}
+
+/**
+ * Get the current time formatted according to the specified format
+ * @param format - Time format string (e.g., "HH:mm:ss", "hh:mm tt")
+ * @returns Formatted time string
+ */
+GetCurrentTime(format := "HH:mm:ss") {
+    if (format = "")
+        format := "HH:mm:ss"
+    return FormatTime(A_Now, format)
+}
+
+/**
+ * Get the current date and time formatted according to the specified format
+ * @param format - DateTime format string (e.g., "yyyy-MM-dd HH:mm:ss")
+ * @returns Formatted datetime string
+ */
+GetCurrentDateTime(format := "yyyy-MM-dd HH:mm:ss") {
+    if (format = "")
+        format := "yyyy-MM-dd HH:mm:ss"
+    return FormatTime(A_Now, format)
+}
+
+; ============================================================
+; Copy & Paste Functions
+; ============================================================
+
 CopyAndPasteItem(item) {
     global MyGui, LastActiveWindow, AutoPasteCheckbox
     
@@ -293,7 +379,8 @@ CopyAndPasteItem(item) {
     shouldAutoPaste := AutoPasteCheckbox.Value
     targetWindow := LastActiveWindow
     
-    A_Clipboard := item.clip
+    ; Process dynamic functions in clip text
+    A_Clipboard := ProcessDynamicClip(item.clip)
     MyGui.Destroy()
     
     ; Auto-paste if enabled
@@ -312,15 +399,14 @@ CreateTabContent(tabName, x, y, lvWidth, lvHeight) {
     ; Create a ListView for this tab's content with absolute positioning
     lv := MyGui.Add("ListView", 
         "x" x " y" y " w" lvWidth " h" lvHeight " Background" CONFIG.bgColor " c" CONFIG.textColor " -Hdr +Report +LV0x10000",
-        ["Clip", "Description", "Group"])
+        ["Clip", "Description"])
     
     lv.OnEvent("DoubleClick", OnItemDoubleClick)
     lv.OnEvent("Click", OnItemClick)
     
     ; Set column widths proportionally
-    lv.ModifyCol(1, Integer(lvWidth * 0.38))
+    lv.ModifyCol(1, Integer(lvWidth * 0.48))
     lv.ModifyCol(2, Integer(lvWidth * 0.50))
-    lv.ModifyCol(3, Integer(lvWidth * 0.10))
     
     ContentPanels[tabName] := lv
     
@@ -420,7 +506,7 @@ RefreshTabContent(tabName) {
 ; ============================================================
 
 OnGuiResize(thisGui, MinMax, Width, Height) {
-    global SearchEdit, TabControl, ContentPanels, AutoPasteCheckbox, CONFIG
+    global SearchEdit, TabControl, ContentPanels, AutoPasteCheckbox, SearchDescCheckbox, CONFIG
     
     if (MinMax = -1)  ; Window minimized
         return
@@ -429,11 +515,15 @@ OnGuiResize(thisGui, MinMax, Width, Height) {
     for tabName, lv in ContentPanels {
         try SendMessage(0x000B, 0, 0, lv)  ; WM_SETREDRAW = FALSE
     }
+    if (TabControl != "") {
+        try SendMessage(0x000B, 0, 0, TabControl)  ; WM_SETREDRAW = FALSE
+    }
     
     ; Update search bar width
-    try SearchEdit.Move(,, Width - 180)
+    try SearchEdit.Move(,, Width - 350)
     
-    ; Update auto-paste checkbox position
+    ; Update checkbox positions
+    try SearchDescCheckbox.Move(Width - 290)
     try AutoPasteCheckbox.Move(Width - 130)
     
     ; Calculate new positions
@@ -450,9 +540,8 @@ OnGuiResize(thisGui, MinMax, Width, Height) {
     for tabName, lv in ContentPanels {
         try {
             lv.Move(,, lvWidth, lvHeight)
-            lv.ModifyCol(1, Integer(lvWidth * 0.38))
+            lv.ModifyCol(1, Integer(lvWidth * 0.48))
             lv.ModifyCol(2, Integer(lvWidth * 0.50))
-            lv.ModifyCol(3, Integer(lvWidth * 0.10))
         }
     }
     
@@ -463,41 +552,67 @@ OnGuiResize(thisGui, MinMax, Width, Height) {
             WinRedraw(lv)
         }
     }
+    if (TabControl != "") {
+        try {
+            SendMessage(0x000B, 1, 0, TabControl)  ; WM_SETREDRAW = TRUE
+            WinRedraw(TabControl)
+        }
+    }
 }
 
 OnSearchChange(ctrl, *) {
-    global TabData, SearchEdit, SearchDescCheckbox
+    global TabData, SearchEdit, SearchDescCheckbox, ContentPanels, TabControl
     
     searchText := StrLower(Trim(SearchEdit.Value))
     searchInDesc := SearchDescCheckbox.Value
     
-    for tabName, data in TabData {
-        if (searchText = "") {
-            data.filteredItems := data.items.Clone()
-        } else {
-            data.filteredItems := []
-            tabNameLower := StrLower(tabName)
-            
-            for item in data.items {
-                ; Search in clip and group always, description only if checkbox is checked
-                found := InStr(StrLower(item.clip), searchText) ||
-                         InStr(StrLower(item.group), searchText) ||
-                         InStr(tabNameLower, searchText)
+    ; Suspend redrawing while we repopulate ListViews & update tab captions.
+    ; This prevents visible flashing/glitches when toggling search options.
+    try {
+        for _, lv in ContentPanels {
+            try SendMessage(0x000B, 0, 0, lv)  ; WM_SETREDRAW = FALSE
+        }
+        if (TabControl != "") {
+            try SendMessage(0x000B, 0, 0, TabControl)  ; WM_SETREDRAW = FALSE
+        }
+        
+        for tabName, data in TabData {
+            if (searchText = "") {
+                data.filteredItems := data.items.Clone()
+            } else {
+                data.filteredItems := []
+                tabNameLower := StrLower(tabName)
                 
-                ; Optionally search in descriptions
-                if (!found && searchInDesc) {
-                    found := InStr(StrLower(item.description), searchText)
-                }
-                
-                if (found) {
-                    data.filteredItems.Push(item)
+                for item in data.items {
+                    ; Search in clip and group always, description only if checkbox is checked
+                    found := InStr(StrLower(item.clip), searchText) ||
+                             InStr(StrLower(item.group), searchText) ||
+                             InStr(tabNameLower, searchText)
+                    
+                    ; Optionally search in descriptions
+                    if (!found && searchInDesc) {
+                        found := InStr(StrLower(item.description), searchText)
+                    }
+                    
+                    if (found) {
+                        data.filteredItems.Push(item)
+                    }
                 }
             }
+            RefreshTabContent(tabName)
         }
-        RefreshTabContent(tabName)
+        
+        UpdateAllBadges()
+    } finally {
+        for _, lv in ContentPanels {
+            try SendMessage(0x000B, 1, 0, lv)  ; WM_SETREDRAW = TRUE
+            try WinRedraw(lv)
+        }
+        if (TabControl != "") {
+            try SendMessage(0x000B, 1, 0, TabControl)  ; WM_SETREDRAW = TRUE
+            try WinRedraw(TabControl)
+        }
     }
-    
-    UpdateAllBadges()
 }
 
 OnSearchDescToggle(ctrl, *) {
@@ -542,19 +657,24 @@ CopyItemByDisplayText(lv, displayText) {
     
     ; Clean up display text for comparison
     displayText := Trim(displayText)
+    
+    ; Remove index prefix like "[1] " or "    " (4 spaces for non-indexed items)
+    displayText := RegExReplace(displayText, "^\[\d+\]\s*", "")
     displayText := RegExReplace(displayText, "^\s+", "")  ; Remove leading spaces
     
-    ; Find matching item
+    ; Find matching item by exact match
     for item in items {
         clipText := StrLen(item.clip) > 40 ? SubStr(item.clip, 1, 40) "..." : item.clip
         clipText := StrReplace(clipText, "`n", " ↵ ")
         
-        if (InStr(displayText, clipText) || InStr(clipText, displayText)) {
+        ; Use exact string comparison instead of loose InStr matching
+        if (displayText = clipText) {
             ; Save values before destroying GUI
             shouldAutoPaste := AutoPasteCheckbox.Value
             targetWindow := LastActiveWindow
             
-            A_Clipboard := item.clip
+            ; Process dynamic functions in clip text
+            A_Clipboard := ProcessDynamicClip(item.clip)
             MyGui.Destroy()
             
             ; Auto-paste if enabled
