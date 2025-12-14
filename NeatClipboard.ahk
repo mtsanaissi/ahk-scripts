@@ -51,9 +51,11 @@ global DisplayOrderItems := Map()  ; TabName -> Array of items in display order
 global TabControl := ""
 global SearchEdit := ""
 global ContentPanels := Map()  ; TabName -> Panel Control
+global LvByHwnd := Map()       ; hwnd -> ListView control
 global AutoPasteCheckbox := ""
 global SearchDescCheckbox := ""  ; Toggle for searching in descriptions
 global LastActiveWindow := ""
+global _NcHover := {active: false, hwnd: 0, row: 0, col: 0}
 
 ; ============================================================
 ; Hotkey Registration
@@ -186,10 +188,11 @@ NormalizeYamlItems(items) {
 }
 
 CreateMainGUI() {
-    global MyGui, TabControl, SearchEdit, ContentPanels, BadgeTexts, AutoPasteCheckbox, SearchDescCheckbox, CONFIG
+    global MyGui, TabControl, SearchEdit, ContentPanels, BadgeTexts, AutoPasteCheckbox, SearchDescCheckbox, CONFIG, LvByHwnd
     
     ContentPanels := Map()
     BadgeTexts := Map()
+    LvByHwnd := Map()
     
     ; Create main window
     MyGui := Gui("+Resize", "NeatClipboard")
@@ -269,6 +272,10 @@ CreateMainGUI() {
     
     ; Register keyboard shortcuts for this GUI
     RegisterGuiHotkeys()
+
+    ; ListView does not support word-wrapping with per-row variable height in Report view.
+    ; Provide hover tooltips so full Clip/Description text can be read without truncation.
+    RegisterListViewHoverTooltips()
     
     ; Show
     MyGui.Show("w" CONFIG.windowWidth " h" CONFIG.windowHeight)
@@ -439,7 +446,7 @@ CopyAndPasteItem(item) {
 }
 
 CreateTabContent(tabName, x, y, lvWidth, lvHeight) {
-    global MyGui, ContentPanels, TabData, CONFIG
+    global MyGui, ContentPanels, TabData, CONFIG, LvByHwnd
     
     ; Create a ListView for this tab's content with absolute positioning
     lv := MyGui.Add("ListView", 
@@ -454,9 +461,109 @@ CreateTabContent(tabName, x, y, lvWidth, lvHeight) {
     lv.ModifyCol(2, Integer(lvWidth * 0.50))
     
     ContentPanels[tabName] := lv
+    try LvByHwnd[lv.Hwnd] := lv
     
     ; Populate with items
     RefreshTabContent(tabName)
+}
+
+RegisterListViewHoverTooltips() {
+    static registered := false
+    if (registered)
+        return
+    registered := true
+    CoordMode("Mouse", "Screen")
+    OnMessage(0x200, OnNcMouseMove)  ; WM_MOUSEMOVE
+}
+
+OnNcMouseMove(wParam, lParam, msg, hwnd) {
+    global MyGui, LvByHwnd, _NcHover
+    if (MyGui = "")
+        return
+    
+    if !WinActive("ahk_id " MyGui.Hwnd) {
+        if (_NcHover.active) {
+            ToolTip()
+            _NcHover.active := false
+        }
+        return
+    }
+
+    ; WM_MOUSEMOVE is received by the control currently under the cursor.
+    ; Using lParam (client coords) keeps hit-testing in sync even when the ListView is scrolled/DPI scaled.
+    if !LvByHwnd.Has(hwnd) {
+        if (_NcHover.active) {
+            ToolTip()
+            _NcHover.active := false
+        }
+        return
+    }
+
+    lv := LvByHwnd[hwnd]
+    x := NcSignedLoWord(lParam)
+    y := NcSignedHiWord(lParam)
+    hit := NcListViewHitTestClient(lv, x, y)
+    row := hit.row
+    col := hit.col
+    if (row < 1 || col < 1) {
+        if (_NcHover.active) {
+            ToolTip()
+            _NcHover.active := false
+        }
+        return
+    }
+    
+    text := ""
+    try text := lv.GetText(row, col)
+    text := Trim(text)
+    
+    ; Skip group headers and empty cells.
+    if (text = "" || SubStr(text, 1, 2) = "▸ ") {
+        if (_NcHover.active) {
+            ToolTip()
+            _NcHover.active := false
+        }
+        return
+    }
+    
+    ; Only update tooltip when hovering a different cell.
+    if (_NcHover.active && _NcHover.hwnd = hwnd && _NcHover.row = row && _NcHover.col = col)
+        return
+
+    MouseGetPos(&mx, &my)
+    ToolTip(text, mx + 18, my + 18)
+    _NcHover.active := true
+    _NcHover.hwnd := hwnd
+    _NcHover.row := row
+    _NcHover.col := col
+}
+
+NcSignedLoWord(value) {
+    x := value & 0xFFFF
+    return (x & 0x8000) ? (x - 0x10000) : x
+}
+
+NcSignedHiWord(value) {
+    y := (value >> 16) & 0xFFFF
+    return (y & 0x8000) ? (y - 0x10000) : y
+}
+
+NcListViewHitTestClient(lv, clientX, clientY) {
+    static LVM_SUBITEMHITTEST := 0x1039
+    ctrlHwnd := lv.Hwnd
+
+    ; LVHITTESTINFO: POINT pt; UINT flags; int iItem; int iSubItem; (+ optional iGroup)
+    info := Buffer(32, 0)
+    NumPut("Int", clientX, info, 0)
+    NumPut("Int", clientY, info, 4)
+    
+    itemIdx := SendMessage(LVM_SUBITEMHITTEST, 0, info.Ptr, ctrlHwnd)
+    if (itemIdx < 0)
+        return {row: 0, col: 0}
+    
+    ; LVHITTESTINFO.iSubItem is at offset 16 (pt=8, flags=4, iItem=4).
+    subIdx := NumGet(info, 16, "Int")
+    return {row: itemIdx + 1, col: subIdx + 1}
 }
 
 RefreshTabContent(tabName) {
