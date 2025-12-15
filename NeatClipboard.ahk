@@ -75,7 +75,7 @@ ShowClipboardManager() {
     
     ; Destroy existing GUI if any
     if (MyGui != "") {
-        try MyGui.Destroy()
+        try NcDestroyGui()
     }
     
     ; Load all YAML files
@@ -198,8 +198,8 @@ CreateMainGUI() {
     MyGui := Gui("+Resize", "NeatClipboard")
     MyGui.BackColor := CONFIG.bgColor
     MyGui.SetFont("s10 c" CONFIG.textColor, "Segoe UI")
-    MyGui.OnEvent("Close", (*) => MyGui.Destroy())
-    MyGui.OnEvent("Escape", (*) => MyGui.Destroy())
+    MyGui.OnEvent("Close", (*) => NcDestroyGui())
+    MyGui.OnEvent("Escape", (*) => NcDestroyGui())
     MyGui.OnEvent("Size", OnGuiResize)
     
     ; ========== Top Bar ==========
@@ -279,7 +279,7 @@ CreateMainGUI() {
     
     ; Show
     MyGui.Show("w" CONFIG.windowWidth " h" CONFIG.windowHeight)
-    SearchEdit.Focus()
+    FocusActiveTabListView()
 }
 
 RegisterGuiHotkeys() {
@@ -299,8 +299,81 @@ RegisterGuiHotkeys() {
     Loop 9 {
         Hotkey("!" A_Index, ActivateEntry.Bind(A_Index), "On")
     }
+
+    ; 1-9 = Activate entry 1-9 (only when the search box is NOT focused)
+    HotIf(NcHotIfNoSearchFocus)
+    Loop 9 {
+        Hotkey(A_Index, ActivateEntry.Bind(A_Index), "On")
+    }
+    HotIfWinActive("ahk_id " MyGui.Hwnd)
     
     HotIf()  ; Reset context
+}
+
+NcHotIfNoSearchFocus(*) {
+    global MyGui
+    return (MyGui != "") && WinActive("ahk_id " MyGui.Hwnd) && !NcIsSearchFocused()
+}
+
+NcIsSearchFocused() {
+    global MyGui, SearchEdit
+    if (MyGui = "" || SearchEdit = "")
+        return false
+
+    try {
+        focusedClassNN := ControlGetFocus("ahk_id " MyGui.Hwnd)
+        if (focusedClassNN = "")
+            return false
+        focusedHwnd := ControlGetHwnd(focusedClassNN, "ahk_id " MyGui.Hwnd)
+        return (focusedHwnd = SearchEdit.Hwnd)
+    } catch {
+        return false
+    }
+}
+
+FocusActiveTabListView() {
+    global MyGui, TabControl, TabOrder, ContentPanels
+    if (MyGui = "" || TabControl = "" || TabOrder.Length = 0)
+        return
+
+    tabIdx := TabControl.Value
+    if (tabIdx < 1 || tabIdx > TabOrder.Length)
+        tabIdx := 1
+
+    tabName := TabOrder[tabIdx]
+    if ContentPanels.Has(tabName) {
+        try ContentPanels[tabName].Focus()
+    }
+}
+
+NcClearHoverTooltip() {
+    global _NcHover
+    ToolTip()
+    _NcHover.active := false
+    _NcHover.hwnd := 0
+    _NcHover.row := 0
+    _NcHover.col := 0
+}
+
+NcDestroyGui() {
+    global MyGui, TabControl, SearchEdit, ContentPanels, LvByHwnd
+    static destroying := false
+    if (destroying)
+        return
+    destroying := true
+
+    try {
+        NcClearHoverTooltip()
+        if (MyGui != "")
+            try MyGui.Destroy()
+    } finally {
+        MyGui := ""
+        TabControl := ""
+        SearchEdit := ""
+        ContentPanels := Map()
+        LvByHwnd := Map()
+        destroying := false
+    }
 }
 
 FocusSearch() {
@@ -433,7 +506,7 @@ CopyAndPasteItem(item) {
     
     ; Process dynamic functions in clip text
     A_Clipboard := ProcessDynamicClip(item.clip)
-    MyGui.Destroy()
+    NcDestroyGui()
     
     ; Auto-paste if enabled
     if (shouldAutoPaste && targetWindow) {
@@ -480,8 +553,21 @@ OnNcMouseMove(wParam, lParam, msg, hwnd) {
     global MyGui, LvByHwnd, _NcHover
     if (MyGui = "")
         return
-    
-    if !WinActive("ahk_id " MyGui.Hwnd) {
+
+    guiHwnd := 0
+    try guiHwnd := MyGui.Hwnd
+    catch {
+        NcClearHoverTooltip()
+        MyGui := ""
+        return
+    }
+    if (!guiHwnd || !WinExist("ahk_id " guiHwnd)) {
+        NcClearHoverTooltip()
+        MyGui := ""
+        return
+    }
+
+    if !WinActive("ahk_id " guiHwnd) {
         if (_NcHover.active) {
             ToolTip()
             _NcHover.active := false
@@ -827,7 +913,7 @@ CopyItemByDisplayText(lv, displayText) {
             
             ; Process dynamic functions in clip text
             A_Clipboard := ProcessDynamicClip(item.clip)
-            MyGui.Destroy()
+            NcDestroyGui()
             
             ; Auto-paste if enabled
             if (shouldAutoPaste && targetWindow) {
