@@ -20,3 +20,17 @@ groups:
         desc: Format document
       - keys: Ctrl+D
         desc: Add next match to selection
+  - name: Repo hotstrings
+    items:
+      - keys: nf then Tab
+        desc: npm run format
+      - keys: nt then Tab
+        desc: npm test
+      - keys: nb then Tab
+        desc: npm run build
+      - keys: nd then Tab
+        desc: npm run dev
+      - keys: gmo then Tab
+        desc: git merge origin/
+      - keys: gac then Tab
+        desc: git add . && git commit -m "chore: docs" && git push

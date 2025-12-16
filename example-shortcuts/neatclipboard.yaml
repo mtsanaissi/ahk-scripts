@@ -1,0 +1,18 @@
+title: NeatClipboard
+type: app
+displayOrder: 5
+match:
+  titleContains: NeatClipboard
+groups:
+  - name: Navigation
+    items:
+      - keys: Ctrl+F
+        desc: Focus search box (select all)
+      - keys: Ctrl+1..9
+        desc: Switch to tab 1..9
+  - name: Actions
+    items:
+      - keys: Alt+1..9
+        desc: Copy/activate entry 1..9
+      - keys: 1..9
+        desc: Copy/activate entry 1..9 (when search box not focused)

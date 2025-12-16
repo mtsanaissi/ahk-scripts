@@ -18,3 +18,31 @@ groups:
         desc: Focus address bar
       - keys: Ctrl+R
         desc: Reload
+  - name: Google Tasks
+    items:
+      - keys: N
+        desc: New task
+      - keys: E
+        desc: New list
+      - keys: A
+        desc: Add to selected task
+      - keys: /
+        desc: Search tasks
+      - keys: Tab
+        desc: Next item
+      - keys: Shift+Tab
+        desc: Previous item
+      - keys: Space
+        desc: Complete/select task
+      - keys: Enter
+        desc: Edit selected item
+      - keys: Delete
+        desc: Delete selected item
+      - keys: 1..9
+        desc: Sort by different criteria
+      - keys: G+H
+        desc: Go to home
+      - keys: G+M
+        desc: Go to my lists
+      - keys: G+C
+        desc: Go to completed

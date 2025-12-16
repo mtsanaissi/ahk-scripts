@@ -7,7 +7,7 @@
 ; - Shows global shortcuts, then active app, then the rest (A-Z)
 ; - Borderless, resizable, and does not steal focus on show
 
-#Include "Lib\ShortcutsYamlParser.ahk"
+#Include "Lib\ShortcutsSchemaParser.ahk"
 
 ; ============================================================
 ; Configuration
@@ -48,6 +48,8 @@ global ShTitle := ""
 global ShContext := ""
 global ShCount := ""
 global ShCloseBtn := ""
+global ShCopyBtn := ""
+global ShCopyExeBtn := ""
 global ShHeaderBg := ""
 global ShFooterBg := ""
 global ShBorderTop := ""
@@ -55,9 +57,11 @@ global ShBorderLeft := ""
 global ShBorderRight := ""
 global ShBorderBottom := ""
 global ShLastActiveWindow := 0
+global ShActiveExe := ""
 global ShAllDefs := [] ; Array of {title,type,displayOrder,match,entries}
 global ShRenderedRows := [] ; Array of {keys,desc,section,group}
-global ShLoadStats := { files: 0, loaded: 0, errors: 0 }
+global ShLoadStats := { files: 0, loaded: 0, errors: 0, entries: 0, details: [] }
+global ShColorCache := Map()
 
 ; ============================================================
 ; Startup
@@ -147,16 +151,17 @@ Sh_EnsureShortcutsFolder() {
 Sh_LoadAllYaml() {
     global SH_CONFIG, ShAllDefs, ShLoadStats
     ShAllDefs := []
-    ShLoadStats := { files: 0, loaded: 0, errors: 0 }
+    ShLoadStats := { files: 0, loaded: 0, errors: 0, entries: 0, details: [] }
 
     if !DirExist(SH_CONFIG.shortcutsFolder)
         return
 
     Loop Files, SH_CONFIG.shortcutsFolder "\*.yaml" {
         ShLoadStats.files += 1
-        parsed := ShortcutsYamlParser.ParseFile(A_LoopFileFullPath)
+        parsed := ShortcutsSchemaParser.ParseFile(A_LoopFileFullPath)
         if (parsed.HasOwnProp("error")) {
             ShLoadStats.errors += 1
+            ShLoadStats.details.Push(A_LoopFileName ": ERROR: " parsed.error)
             continue
         }
 
@@ -166,9 +171,31 @@ Sh_LoadAllYaml() {
         match := parsed.HasOwnProp("match") ? parsed.match : {}
 
         entries := Sh_NormalizeYamlEntries(parsed)
+        ShLoadStats.entries += entries.Length
+        ShLoadStats.details.Push(
+            A_LoopFileName
+                ": parser=" (parsed.HasOwnProp("__parser") ? parsed.__parser : "?")
+                " rootKeys=" (parsed.HasOwnProp("__rootKeys") ? parsed.__rootKeys.Length : 0)
+                " groups=" Sh_KeySummary(parsed, "groups")
+                " items=" Sh_KeySummary(parsed, "items")
+                " -> entries=" entries.Length
+                (parsed.HasOwnProp("__rootKeys") ? (" keys=[" Sh_JoinArray(parsed.__rootKeys, ",") "]") : "")
+        )
         ShAllDefs.Push({ title: title, type: type, displayOrder: displayOrder, match: match, entries: entries })
         ShLoadStats.loaded += 1
     }
+}
+
+Sh_KeySummary(obj, key) {
+    if (!IsObject(obj) || !obj.HasOwnProp(key))
+        return "none"
+    v := obj.%key%
+    t := Type(v)
+    if (t = "Array")
+        return "Array(" v.Length ")"
+    if (t = "Object")
+        return "Object"
+    return t
 }
 
 Sh_NormalizeYamlEntries(parsed) {
@@ -228,6 +255,12 @@ Sh_GetActiveAppTitle() {
     try class := WinGetClass("A")
     try title := WinGetTitle("A")
 
+    return Sh_GetActiveDefIndex(exe, class, title)
+}
+
+Sh_GetActiveDefIndex(exe, class, title) {
+    global ShAllDefs
+
     bestIdx := 0
     bestScore := 2147483647
 
@@ -242,6 +275,14 @@ Sh_GetActiveAppTitle() {
     }
 
     return bestIdx
+}
+
+Sh_GetActiveWindowInfo() {
+    info := { exe: "", class: "", title: "" }
+    try info.exe := WinGetProcessName("A")
+    try info.class := WinGetClass("A")
+    try info.title := WinGetTitle("A")
+    return info
 }
 
 Sh_ScoreMatch(matchObj, exe, class, title) {
@@ -314,7 +355,7 @@ Sh_TitleContains(needleOrList, haystack) {
 ; ============================================================
 
 Sh_CreateGui() {
-    global SH_CONFIG, ShGui, ShLv, ShSearch, ShTitle, ShContext, ShCount, ShCloseBtn
+    global SH_CONFIG, ShGui, ShLv, ShSearch, ShTitle, ShContext, ShCount, ShCloseBtn, ShCopyBtn, ShCopyExeBtn
     global ShHeaderBg, ShFooterBg, ShBorderTop, ShBorderLeft, ShBorderRight, ShBorderBottom
 
     ShGui := Gui("+AlwaysOnTop +ToolWindow +Resize -Caption")
@@ -337,6 +378,14 @@ Sh_CreateGui() {
     ShSearch.SetFont("s9", "Segoe UI")
     ShSearch.OnEvent("Change", (*) => Sh_RefreshList())
 
+    ShCopyExeBtn := ShGui.Add("Button", "x0 y0 w36 h24", "exe")
+    ShCopyExeBtn.SetFont("s8 w600", "Segoe UI")
+    ShCopyExeBtn.OnEvent("Click", (*) => Sh_CopyActiveExe())
+
+    ShCopyBtn := ShGui.Add("Button", "x0 y0 w28 h24", "⧉")
+    ShCopyBtn.SetFont("s10 w600", "Segoe UI")
+    ShCopyBtn.OnEvent("Click", (*) => Sh_CopyDiagnostics())
+
     ShCloseBtn := ShGui.Add("Button", "x0 y0 w28 h24", "×")
     ShCloseBtn.SetFont("s11 w600", "Segoe UI")
     ShCloseBtn.OnEvent("Click", (*) => Sh_Hide())
@@ -347,7 +396,13 @@ Sh_CreateGui() {
     ShCount.SetFont("s8", "Segoe UI")
 
     ; List
-    ShLv := ShGui.Add("ListView", "x0 y0 w" SH_CONFIG.windowWidth " h" SH_CONFIG.windowHeight " -Multi -Hdr", ["Shortcut", "Description"])
+    ShLv := ShGui.Add(
+        "ListView",
+        "x0 y0 w" SH_CONFIG.windowWidth " h" SH_CONFIG.windowHeight
+            " Background" SH_CONFIG.bg " c" SH_CONFIG.text
+            " -Multi +Hdr +Report +LV0x10000",
+        ["Shortcut", "Description"]
+    )
     ShLv.SetFont("s9", "Segoe UI")
     ShLv.ModifyCol(1, 220)
     ShLv.ModifyCol(2, 520)
@@ -355,6 +410,8 @@ Sh_CreateGui() {
     ShGui.OnEvent("Close", (*) => Sh_Hide())
     ShGui.OnEvent("Escape", (*) => Sh_Hide())
     ShGui.OnEvent("Size", Sh_OnSize)
+
+    OnMessage(0x4E, Sh_WmNotify) ; WM_NOTIFY (ListView selection + custom draw)
 
     ; Border (1px) - add last so it stays on top
     ShBorderTop := ShGui.Add("Text", "x0 y0 w" SH_CONFIG.windowWidth " h1 Background" SH_CONFIG.border)
@@ -369,7 +426,7 @@ Sh_CreateGui() {
 }
 
 Sh_OnSize(guiObj, minMax, width, height) {
-    global SH_CONFIG, ShLv, ShSearch, ShCloseBtn, ShCount, ShContext
+    global SH_CONFIG, ShLv, ShSearch, ShCloseBtn, ShCopyBtn, ShCopyExeBtn, ShCount, ShContext
     global ShHeaderBg, ShFooterBg, ShBorderTop, ShBorderLeft, ShBorderRight, ShBorderBottom
     if (minMax = -1)
         return
@@ -390,11 +447,15 @@ Sh_OnSize(guiObj, minMax, width, height) {
 
     searchW := 260
     closeW := 34
+    copyW := 34
+    copyExeW := 42
     topY := 10
 
     ShCloseBtn.Move(width - pad - closeW, topY - 2, closeW, 26)
-    ShSearch.Move(width - pad - closeW - 10 - searchW, topY, searchW, 22)
-    ShContext.Move(pad + 220, topY + 2, width - (pad + 220) - (pad + closeW + 10 + searchW) - 10, 18)
+    ShCopyBtn.Move(width - pad - closeW - 6 - copyW, topY - 2, copyW, 26)
+    ShCopyExeBtn.Move(width - pad - closeW - 6 - copyW - 6 - copyExeW, topY - 1, copyExeW, 24)
+    ShSearch.Move(width - pad - closeW - 6 - copyW - 6 - copyExeW - 10 - searchW, topY, searchW, 22)
+    ShContext.Move(pad + 220, topY + 2, width - (pad + 220) - (pad + closeW + 6 + copyW + 6 + copyExeW + 10 + searchW) - 10, 18)
 
     ShCount.Move(pad, headerH + 5, width - (2 * pad), 18)
 
@@ -408,8 +469,121 @@ Sh_OnSize(guiObj, minMax, width, height) {
     ShLv.ModifyCol(2, width - (2 * pad) - 240)
 }
 
+Sh_CopyDiagnostics() {
+    global ShLoadStats
+    lines := []
+    lines.Push("ShortcutsHelper diagnostics")
+    lines.Push("files=" ShLoadStats.files " loaded=" ShLoadStats.loaded " errors=" ShLoadStats.errors " entries=" (ShLoadStats.HasOwnProp("entries") ? ShLoadStats.entries : 0))
+    if (ShLoadStats.HasOwnProp("details")) {
+        for line in ShLoadStats.details {
+            lines.Push(line)
+        }
+    }
+    A_Clipboard := ""
+    A_Clipboard := Sh_JoinArray(lines, "`r`n")
+    ToolTip("Diagnostics copied", , , 19)
+    SetTimer(() => ToolTip(, , , 19), -900)
+}
+
+Sh_CopyActiveExe() {
+    global ShActiveExe
+    if (ShActiveExe = "") {
+        ToolTip("No active exe", , , 20)
+        SetTimer(() => ToolTip(, , , 20), -900)
+        return
+    }
+    A_Clipboard := ""
+    A_Clipboard := ShActiveExe
+    ToolTip("Copied: " ShActiveExe, , , 20)
+    SetTimer(() => ToolTip(, , , 20), -900)
+}
+
+Sh_JoinArray(arr, sep := ",") {
+    if (!IsObject(arr) || arr.Length = 0)
+        return ""
+    out := ""
+    for _, v in arr {
+        out .= (out = "" ? "" : sep) v
+    }
+    return out
+}
+
+Sh_WmNotify(wParam, lParam, msg, hwnd) {
+    global ShGui, ShLv, ShRenderedRows, SH_CONFIG
+    if (ShGui = "" || ShLv = "")
+        return
+    if (hwnd != ShGui.Hwnd)
+        return
+
+    hwndFrom := NumGet(lParam, 0, "ptr")
+    if (hwndFrom != ShLv.Hwnd)
+        return
+
+    code := NumGet(lParam, A_PtrSize * 2, "int")
+
+    nmhdrSize := (A_PtrSize = 8) ? 24 : 12
+    nmcdSize := (A_PtrSize = 8) ? 80 : 48
+    offItemSpec := nmhdrSize + 4 + (A_PtrSize = 8 ? 4 : 0) + A_PtrSize + 16
+
+    ; Prevent selecting section/group rows.
+    if (code = -100) { ; LVN_ITEMCHANGING
+        iItem := NumGet(lParam, nmhdrSize, "int") + 1
+        if (iItem >= 1 && iItem <= ShRenderedRows.Length) {
+            try {
+                if (ShRenderedRows[iItem].kind != "item")
+                    return 1
+            }
+        }
+        return 0
+    }
+
+    ; Per-row colors for section/group headers.
+    if (code = -12) { ; NM_CUSTOMDRAW
+        drawStage := NumGet(lParam, nmhdrSize, "uint")
+        if (drawStage = 0x1) { ; CDDS_PREPAINT
+            return 0x20 ; CDRF_NOTIFYITEMDRAW
+        }
+        if (drawStage = 0x10001) { ; CDDS_ITEMPREPAINT
+            row := NumGet(lParam, offItemSpec, "UPtr") + 1
+            if (row >= 1 && row <= ShRenderedRows.Length) {
+                kind := ""
+                try kind := ShRenderedRows[row].kind
+                if (kind = "section") {
+                    NumPut("uint", Sh_ColorRef(SH_CONFIG.accent), lParam, nmcdSize)       ; clrText
+                    NumPut("uint", Sh_ColorRef(SH_CONFIG.panel2), lParam, nmcdSize + 4)  ; clrTextBk
+                    return 0x2 ; CDRF_NEWFONT
+                }
+                if (kind = "group") {
+                    NumPut("uint", Sh_ColorRef(SH_CONFIG.muted), lParam, nmcdSize)
+                    NumPut("uint", Sh_ColorRef(SH_CONFIG.panel), lParam, nmcdSize + 4)
+                    return 0x2
+                }
+            }
+            return 0
+        }
+        return 0
+    }
+}
+
+Sh_ColorRef(hexRgb) {
+    global ShColorCache
+    key := StrLower(hexRgb)
+    if (ShColorCache.Has(key))
+        return ShColorCache[key]
+
+    hex := RegExReplace(key, "i)^0x", "")
+    val := 0
+    try val := Integer("0x" hex)
+    r := (val >> 16) & 0xFF
+    g := (val >> 8) & 0xFF
+    b := val & 0xFF
+    colorRef := (b << 16) | (g << 8) | r
+    ShColorCache[key] := colorRef
+    return colorRef
+}
+
 Sh_WmNcHitTest(wParam, lParam, msg, hwnd) {
-    global SH_CONFIG, ShGui, ShSearch, ShCloseBtn
+    global SH_CONFIG, ShGui, ShSearch, ShCloseBtn, ShCopyBtn, ShCopyExeBtn
     if (ShGui = "" || hwnd != ShGui.Hwnd)
         return
 
@@ -451,7 +625,7 @@ Sh_WmNcHitTest(wParam, lParam, msg, hwnd) {
     ; Drag zone: header area, excluding interactive controls.
     if (cy <= SH_CONFIG.headerHeight) {
         MouseGetPos(, , , &ctrlHwnd, 2)
-        if (ctrlHwnd = ShSearch.Hwnd || ctrlHwnd = ShCloseBtn.Hwnd)
+        if (ctrlHwnd = ShSearch.Hwnd || ctrlHwnd = ShCloseBtn.Hwnd || ctrlHwnd = ShCopyBtn.Hwnd || ctrlHwnd = ShCopyExeBtn.Hwnd)
             return 0x1 ; HTCLIENT
         return 0x2 ; HTCAPTION
     }
@@ -464,14 +638,16 @@ Sh_WmNcHitTest(wParam, lParam, msg, hwnd) {
 ; ============================================================
 
 Sh_RefreshList() {
-    global ShGui, ShLv, ShSearch, ShContext, ShCount, ShAllDefs, ShRenderedRows, ShLoadStats
+    global ShGui, ShLv, ShSearch, ShContext, ShCount, ShAllDefs, ShRenderedRows, ShLoadStats, ShActiveExe
     if (ShGui = "" || ShLv = "")
         return
 
     ShLv.Delete()
     ShRenderedRows := []
 
-    activeIdx := Sh_GetActiveAppTitle()
+    info := Sh_GetActiveWindowInfo()
+    ShActiveExe := info.exe
+    activeIdx := Sh_GetActiveDefIndex(info.exe, info.class, info.title)
 
     globalDefs := []
     appDefs := []
@@ -489,7 +665,13 @@ Sh_RefreshList() {
     if (activeIdx) {
         activeLabel := ShAllDefs[activeIdx].title
     }
-    ShContext.Text := activeLabel != "" ? ("Active: " activeLabel) : "Active: (no match)"
+    if (info.exe != "") {
+        ShContext.Text := activeLabel != ""
+            ? ("Active: " activeLabel " • " info.exe)
+            : ("Active: (no match) • " info.exe)
+    } else {
+        ShContext.Text := activeLabel != "" ? ("Active: " activeLabel) : "Active: (no match)"
+    }
 
     search := ShSearch.Text
 
@@ -522,7 +704,14 @@ Sh_RefreshList() {
         ShLv.Add("", "Copy ``example-shortcuts/`` to ``shortcuts/`` and keep the ``.yaml`` extension.", "")
         if (ShLoadStats.files > 0 && ShLoadStats.loaded = 0)
             ShLv.Add("", "YAML files found, but none could be parsed (check indentation / format).", "")
-        ShCount.Text := (ShLoadStats.files " files  •  " ShLoadStats.loaded " loaded  •  " ShLoadStats.errors " errors")
+        if (ShLoadStats.details.Length) {
+            ShLv.Add("", "", "")
+            ShLv.Add("", "Diagnostics:", "")
+            for line in ShLoadStats.details {
+                ShLv.Add("", "  " line, "")
+            }
+        }
+        ShCount.Text := (ShLoadStats.files " files  •  " ShLoadStats.loaded " loaded  •  " ShLoadStats.errors " errors  •  " ShLoadStats.entries " entries")
         return
     }
 
@@ -577,7 +766,7 @@ Sh_AddSection(title, entries, searchText) {
 
     ; Section header row
     ShLv.Add("", "— " title " —", "")
-    ShRenderedRows.Push({ keys: "", desc: "", section: title, group: "" })
+    ShRenderedRows.Push({ kind: "section", keys: "", desc: "", section: title, group: "" })
 
     lastGroup := "__none__"
     shown := 0
@@ -585,11 +774,11 @@ Sh_AddSection(title, entries, searchText) {
         groupName := entry.group != "" ? entry.group : ""
         if (groupName != "" && groupName != lastGroup) {
             ShLv.Add("", "  " groupName, "")
-            ShRenderedRows.Push({ keys: "", desc: "", section: title, group: groupName })
+            ShRenderedRows.Push({ kind: "group", keys: "", desc: "", section: title, group: groupName })
             lastGroup := groupName
         }
         ShLv.Add("", entry.keys, entry.desc)
-        ShRenderedRows.Push({ keys: entry.keys, desc: entry.desc, section: title, group: groupName })
+        ShRenderedRows.Push({ kind: "item", keys: entry.keys, desc: entry.desc, section: title, group: groupName })
         shown += 1
     }
     return shown

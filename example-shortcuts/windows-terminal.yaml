@@ -1,0 +1,56 @@
+title: Windows Terminal
+type: app
+displayOrder: 15
+match:
+  exe:
+    - WindowsTerminal.exe
+    - wt.exe
+groups:
+  - name: Tab Management
+    items:
+      - keys: Ctrl+Shift+T
+        desc: New tab
+      - keys: Ctrl+Shift+W
+        desc: Close tab
+      - keys: Ctrl+Tab
+        desc: Next tab
+      - keys: Ctrl+Shift+Tab
+        desc: Previous tab
+  - name: Pane Management
+    items:
+      - keys: Alt+Shift+D
+        desc: Duplicate pane
+      - keys: Alt+Shift+Right
+        desc: Split pane horizontally
+      - keys: Alt+Shift+Down
+        desc: Split pane vertically
+      - keys: Ctrl+Shift+W
+        desc: Close pane
+      - keys: Alt+Arrow
+        desc: Move focus between panes
+  - name: Quick Actions
+    items:
+      - keys: Ctrl+Shift+F
+        desc: Search
+      - keys: Ctrl+Shift+P
+        desc: Command palette
+      - keys: Ctrl+Shift+,
+        desc: Settings
+      - keys: F11
+        desc: Toggle fullscreen
+  - name: Text Operations
+    items:
+      - keys: Ctrl+Shift+C
+        desc: Copy text
+      - keys: Ctrl+Shift+V
+        desc: Paste text
+      - keys: Ctrl+A
+        desc: Select all
+  - name: Navigation
+    items:
+      - keys: Ctrl+Home
+        desc: Scroll to top
+      - keys: Ctrl+End
+        desc: Scroll to bottom
+      - keys: Ctrl+Shift+Arrow
+        desc: Scroll page

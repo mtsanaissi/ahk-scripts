@@ -2,23 +2,45 @@ title: Global
 type: global
 displayOrder: 1
 items:
-  - group: Window management
+  - group: ShortcutsHelper
     items:
-      - keys: Win+Arrow
-        desc: Snap window
-      - keys: Win+Shift+Arrow
-        desc: Move window between monitors
-      - keys: Alt+Tab
-        desc: Switch apps
-  - group: Clipboard
+      - keys: Win+Ctrl+;
+        desc: Toggle ShortcutsHelper window
+  - group: NeatClipboard
     items:
-      - keys: Ctrl+C / Ctrl+X / Ctrl+V
-        desc: Copy / Cut / Paste
+      - keys: Win+Alt+V
+        desc: Open NeatClipboard
+  - group: Global Hotkeys
+    items:
       - keys: Win+V
-        desc: Windows clipboard history
-  - group: System
+        desc: Remapped to Ctrl+' (Ditto workflow)
+      - keys: Ctrl+Volume_Down
+        desc: Previous media track
+      - keys: Ctrl+Volume_Up
+        desc: Next media track
+      - keys: Ctrl+Alt+S
+        desc: Replace selected newlines with ", " and paste back
+      - keys: Ctrl+F11
+        desc: Pin active window on top (+ auto-restore)
+      - keys: Ctrl+F12
+        desc: Undo pin/auto-restore
+      - keys: Hold LButton + Volume_Up
+        desc: Lock mouse movement (until LButton released)
+      - keys: Ctrl+Shift+Q
+        desc: Address-bar macro (swap www → old)
+  - group: Window Manager
     items:
-      - keys: Win+L
-        desc: Lock screen
-      - keys: Win+.
-        desc: Emoji picker
+      - keys: Win+N
+        desc: Move active window to other monitor; press again to restore
+  - group: fix_MButton
+    items:
+      - keys: MButton
+        desc: Debounced middle-click (ignores rapid re-triggers)
+  - group: Application Launchers
+    items:
+      - keys: Ctrl+'
+        desc: Opens Ditto
+      - keys: Ctrl+Space
+        desc: Opens Kando menu
+      - keys: Alt+Space
+        desc: Opens Command Palette
