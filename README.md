@@ -93,3 +93,29 @@ I am putting it out there just so it may be of help to someone, some day. I am n
 
 ## Add to Windows Startup
 Create script file shortcut in File Explorer; Run (Win+R) "shell:startup" to open Startup folder; Move shortcut in there.
+
+## ShortcutsHelper
+
+A shortcut reference overlay that shows global shortcuts first, then shortcuts for the currently focused app, then the rest (alphabetical).
+
+### Shortcuts
+- `Win + Ctrl + ;` — Toggle the ShortcutsHelper window
+
+### Setup
+1. Copy files from `example-shortcuts/` to `shortcuts/`
+2. Customize the YAML files with your own shortcuts
+3. The `shortcuts/` folder is gitignored for privacy
+
+### YAML format
+```yaml
+title: App Name
+type: app         # or "global"
+displayOrder: 10  # optional; lower shows first
+match:            # optional for apps; used for auto-detection
+  exe: Code.exe   # string or list of strings
+groups:
+  - name: Group Name
+    items:
+      - keys: Ctrl+P
+        desc: Quick Open
+```

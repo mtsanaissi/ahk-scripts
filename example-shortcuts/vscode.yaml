@@ -1,0 +1,22 @@
+title: Visual Studio Code
+type: app
+displayOrder: 10
+match:
+  exe:
+    - Code.exe
+    - Code - Insiders.exe
+groups:
+  - name: Navigation
+    items:
+      - keys: Ctrl+P
+        desc: Quick Open
+      - keys: Ctrl+Shift+P
+        desc: Command Palette
+      - keys: Ctrl+`
+        desc: Toggle terminal
+  - name: Editing
+    items:
+      - keys: Alt+Shift+F
+        desc: Format document
+      - keys: Ctrl+D
+        desc: Add next match to selection

@@ -1,0 +1,24 @@
+title: Global
+type: global
+displayOrder: 1
+items:
+  - group: Window management
+    items:
+      - keys: Win+Arrow
+        desc: Snap window
+      - keys: Win+Shift+Arrow
+        desc: Move window between monitors
+      - keys: Alt+Tab
+        desc: Switch apps
+  - group: Clipboard
+    items:
+      - keys: Ctrl+C / Ctrl+X / Ctrl+V
+        desc: Copy / Cut / Paste
+      - keys: Win+V
+        desc: Windows clipboard history
+  - group: System
+    items:
+      - keys: Win+L
+        desc: Lock screen
+      - keys: Win+.
+        desc: Emoji picker
