@@ -10,6 +10,7 @@
 ; - match: { exe|class|titleRegex|titleContains : scalar | list }
 ; - groups: [ { name, items:[{keys,desc}] } ]   (for apps)
 ; - items:  [ { group, items:[{keys,desc}] } ]  (for globals)
+; - items:  [ { keys, desc, group? } ]          (for apps or simple files)
 
 class ShortcutsSchemaParser {
     static ParseFile(filePath) {
@@ -46,6 +47,7 @@ class ShortcutsSchemaParser {
         inItems := false
         itemsIndent := 0
         currentContainer := 0
+        inItemsDirect := false
 
         currentShortcut := 0
         currentShortcutIndent := 0
@@ -74,6 +76,7 @@ class ShortcutsSchemaParser {
                 inItems := false
                 currentContainer := 0
                 currentShortcut := 0
+                inItemsDirect := false
             }
 
             ; Root keys
@@ -197,14 +200,46 @@ class ShortcutsSchemaParser {
             ; items: (globals)
             if (inItems) {
                 if (indent = itemsIndent + 1 && RegExMatch(trimmed, "^-\s*(.*)$", &mDash2)) {
+                    rest := Trim(mDash2[1])
+                    ; Support two shapes:
+                    ; 1) container: - group: X \n   items: \n     - keys: ... \n       desc: ...
+                    ; 2) direct:    - keys: ... \n   desc: ... \n   group: ...?
+                    if (RegExMatch(rest, "^(keys|desc|description):\s*(.*)$", &mDirectFirst)) {
+                        currentContainer := 0
+                        inItemsDirect := true
+                        currentShortcut := { keys: "", desc: "", group: "" }
+                        currentShortcutIndent := indent
+                        items.Push(currentShortcut)
+
+                        firstKey := StrLower(Trim(mDirectFirst[1]))
+                        firstVal := this.ParseScalar(Trim(mDirectFirst[2]))
+                        if (firstKey = "keys")
+                            currentShortcut.keys := firstVal
+                        else
+                            currentShortcut.desc := firstVal
+                        continue
+                    }
+
+                    inItemsDirect := false
                     currentContainer := { group: "", items: [] }
                     items.Push(currentContainer)
 
-                    rest := Trim(mDash2[1])
                     if (RegExMatch(rest, "^group:\s*(.*)$", &mGroup)) {
                         currentContainer.group := this.ParseScalar(Trim(mGroup[1]))
                     }
                     currentShortcut := 0
+                    continue
+                }
+
+                if (inItemsDirect && currentShortcut && indent >= currentShortcutIndent + 1 && RegExMatch(trimmed, "^([^:]+):\s*(.*)$", &mDirectKv)) {
+                    k := StrLower(Trim(mDirectKv[1]))
+                    v := this.ParseScalar(Trim(mDirectKv[2]))
+                    if (k = "keys")
+                        currentShortcut.keys := v
+                    else if (k = "desc" || k = "description")
+                        currentShortcut.desc := v
+                    else if (k = "group")
+                        currentShortcut.group := v
                     continue
                 }
 

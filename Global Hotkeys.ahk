@@ -1,119 +1,300 @@
 ﻿#Requires AutoHotkey v2.0
 
+; ==============================================================================
+; Global Hotkeys - System-wide Keyboard and Mouse Remaps
+; ==============================================================================
+; Provides system-wide hotkeys for common tasks like clipboard management,
+; media control, text processing, and window management.
+; ==============================================================================
+
+; ==============================================================================
+; Clipboard Management
+; ==============================================================================
+
 ; Remap Win+V to CTRL+'
-; I use this in conjunction with Ditto (clipboard manager)
+; Useful for Ditto (clipboard manager) compatibility
 #v::^'
 
-; CTRL + MB4 = previous media; CTRL + MB5 = next media.
-; Check before if your MB4 and MB5 are tied to something in your mouse software.
-; In my case, MB4 and MB5 are for Volume_Down and Volume_Up.
+; ==============================================================================
+; Media Control (Mouse Buttons)
+; ==============================================================================
+; CTRL + Mouse Button 4 = previous track
+; CTRL + Mouse Button 5 = next track
+; Note: Ensure your mouse software doesn't conflict with these buttons
+
 ^Volume_Down::
 {
-  Send "{Media_Prev}"
+    try {
+        Send("{Media_Prev}")
+    } catch {
+        ; Silent fallback: Media keys not supported on this system
+    }
 }
+
 ^Volume_Up::
 {
-  Send "{Media_Next}"
+    try {
+        Send("{Media_Next}")
+    } catch {
+        ; Silent fallback: Media keys not supported on this system
+    }
 }
 
-; CTRL+ALT+S -> gets the selected text and replaces newlines with commas and spaces.
-; Very useful for working with SQL and converting a list of values into a comma-separated string
+; ==============================================================================
+; Text Processing
+; ==============================================================================
+; CTRL+ALT+S -> Convert selected text to comma-separated format
+; Useful for SQL queries and converting lists to CSV format
+
 ^!s::
 {
-  A_Clipboard := ""
-  ; Copy selected text to clipboard
-  Send "^c"
-  ClipWait
-  ; Replace newline character with comma and blank space
-  A_Clipboard := StrReplace(A_Clipboard, "`r`n", ", ")
-  Send "^v"
+    try {
+        ; Clear clipboard and copy selected text
+        A_Clipboard := ""
+        Send("^c")
+        
+        ; Wait for clipboard content with timeout
+        if (!ClipWait(2)) {
+            ; No text was selected or clipboard operation timed out
+            return
+        }
+        
+        ; Replace newlines with comma and space for CSV format
+        processedText := StrReplace(A_Clipboard, "`r`n", ", ")
+        processedText := StrReplace(processedText, "`n", ", ")
+        
+        ; Put processed text back to clipboard
+        A_Clipboard := processedText
+        
+        ; Paste the processed text
+        Send("^v")
+    } catch Error as err {
+        ; Graceful fallback: try to restore original clipboard
+        ; Silent fallback: Clipboard operations failed
+    }
 }
 
-; CTRL + F11 -> remove minimize and maximize buttons, set the window to be always on top, start a timer to test if it's minimized and then restore it
-; CTRL + F12 -> undo the above
-global winid := 0
+; ==============================================================================
+; Window Management
+; ==============================================================================
+; CTRL + F11 -> Make active window always on top with auto-restore
+; CTRL + F12 -> Remove always-on-top and stop monitoring
 
+; Constants for better maintainability
+global WINID_NONE := 0
+global RESTORE_CHECK_INTERVAL_MS := 500
+
+; CTRL + F11: Make window always on top and monitor for minimization
 ^F11::
 {
-  ;WinSetStyle("-0x30000", "A")    ; remove minimize and maximize buttons
-  ;WinSetStyle("-0xC00000", "A")
-  ;WinSetStyle("+0x80000000", "A")
-  WinSetAlwaysOnTop(1, "A")    ; set it on top of all other windows
-  global winid := WinGetID("A")          ; keep the ID of the active window
-  ;MsgBox "Win ID = " winid
-  SetTimer RestoreWindow, 500  ; run RestoreWindow subroutine every half a second
-  ;SetTimer WinRestore("ahk_id " winid), 500
+    try {
+        ; Validate active window exists
+        if !WinExist("A") {
+            ShowHotkeyTooltip("No active window")
+            return
+        }
+        
+        ; Set window always on top
+        try {
+            WinSetAlwaysOnTop(1, "A")
+        } catch {
+            ShowHotkeyTooltip("Failed to set always on top")
+            return
+        }
+        
+        ; Store window ID for restoration monitoring
+        try {
+            global winid := WinGetID("A")
+        } catch {
+            ShowHotkeyTooltip("Failed to get window ID")
+            return
+        }
+        
+        ; Start monitoring timer to restore minimized windows
+        SetTimer(RestoreWindow, RESTORE_CHECK_INTERVAL_MS)
+        
+        ShowHotkeyTooltip("Window set to always on top")
+    } catch Error as err {
+        ShowHotkeyTooltip("Window pinning failed")
+    }
 }
 
+; CTRL + F12: Remove always-on-top and stop monitoring
 ^F12::
 {
-  ;WinSetStyle("+0x30000", "A")    ; add minimize and maximize buttons
-  ;WinSetStyle("+0xC00000", "A")
-  ;WinSetStyle("-0x80000000", "A")
-  SetTimer RestoreWindow, 0  ; stop RestoreWindow from looping
-  global winid := 0
-  WinSetAlwaysOnTop(0, "A")   ; undo on top
-}
-  
-RestoreWindow()
-{
-  ;WinGet, WinState, MinMax, ahk_id winid
-  ;MsgBox "Win ID = " winid
-  If IsSet(winid)
-  {
-    MinMax := WinGetMinMax(winid)
-    If MinMax = -1                ; if window is minimized
-      WinRestore(winid)
-  }
+    try {
+        ; Stop monitoring timer
+        SetTimer(RestoreWindow, 0)
+        
+        ; Clear stored window ID
+        global winid := WINID_NONE
+        
+        ; Remove always-on-top from active window
+        try {
+            WinSetAlwaysOnTop(0, "A")
+        } catch {
+            ; Continue even if this fails
+        }
+        
+        ShowHotkeyTooltip("Window pinning removed")
+    } catch Error as err {
+        ShowHotkeyTooltip("Failed to remove window pinning")
+    }
 }
 
+/**
+ * Monitor and restore minimized windows that are set to always on top
+ * Called by timer to automatically restore windows when they're minimized
+ */
+RestoreWindow() {
+    try {
+        ; Check if we have a valid window ID to monitor
+        if (!IsSet(winid) || winid = WINID_NONE) {
+            return
+        }
+        
+        ; Check if the window still exists
+        if (!WinExist("ahk_id " winid)) {
+            ; Window no longer exists, stop monitoring
+            SetTimer(RestoreWindow, 0)
+            global winid := WINID_NONE
+            return
+        }
+        
+        ; Check if window is minimized
+        try {
+            minMaxState := WinGetMinMax(winid)
+            if (minMaxState = -1) {  ; -1 means minimized
+                WinRestore(winid)
+            }
+        } catch {
+            ; Continue monitoring even if we can't get window state
+        }
+    } catch Error as err {
+        ; Silently continue monitoring on any errors
+    }
+}
+
+
+; ==============================================================================
+; Mouse Lock Feature
+; ==============================================================================
+; Prevents accidental mouse movement when holding left mouse button
+; and pressing Volume_Up button (useful for precise clicking)
 
 global mouseLocked := false
 
-; Activate lock when LButton is held and Volume_Up is pressed
 #HotIf GetKeyState("LButton", "P")
 Volume_Up:: {
     global mouseLocked
-    
-    ; Toggle lock on
-    if (!mouseLocked) {
-        mouseLocked := true
-        BlockInput "MouseMove"
+    try {
+        if (!mouseLocked) {
+            mouseLocked := true
+            try {
+                BlockInput "MouseMove"
+            } catch {
+                ; Continue even if BlockInput fails
+            }
+        }
+    } catch {
+        ; Silent fallback for any errors
     }
 }
 #HotIf
 
-; Release lock when LButton is released
+; Release lock when left mouse button is released
 ~LButton up:: {
     global mouseLocked
-    if (mouseLocked) {
-        mouseLocked := false
-        BlockInput "MouseMoveOff"
+    try {
+        if (mouseLocked) {
+            mouseLocked := false
+            try {
+                BlockInput "MouseMoveOff"
+            } catch {
+                ; Continue even if BlockInput fails
+            }
+        }
+    } catch {
+        ; Silent fallback for any errors
     }
 }
 
-;; Make windows fabulous?
-;^F10::
-;    WinGetTitle, currentWindow, A
-;    IfWinExist %currentWindow%
-;    WinSet, Style, -0xC40000,
-;    ; WinMove, , , 0, 0, A_ScreenWidth, A_ScreenHeight
-;    DllCall("SetMenu", "Ptr", WinExist(), "Ptr", 0)
-;    return
+; ==============================================================================
+; Text Transformation
+; ==============================================================================
+; CTRL + SHIFT + Q -> Replace "www" with "old" (browser URL conversion)
 
-; CTRL + SHIFT + Q -> replace www with old (don't ask!)
 ^+Q::
 {
-  Send "{F4}"
-  Send "{Home}"
-  Send "{Home}"
-  Send "^{Right}"
-  Send "{Delete 3}"
-  Send "old"
-  Send "{Enter}"
-  Send "{Enter}"
-  return
+    try {
+        Send("{F4}")
+        Sleep(50)  ; Small delay for F4 to take effect
+        Send("{Home}")
+        Send("{Home}")
+        Send("^{Right}")
+        Send("{Delete 3}")
+        Send("old")
+        Send("{Enter}")
+        Send("{Enter}")
+    } catch {
+        ; Silent fallback if text transformation fails
+    }
 }
 
-; CTRL + SPACE -> set active window always on top
-; ^SPACE:: Winset, Alwaysontop, , A
+; ==============================================================================
+; Helper Functions
+; ==============================================================================
+
+/**
+ * Show tooltip with consistent styling and automatic cleanup
+ * @param message - Text to display
+ * @param durationMs - Display duration in milliseconds (optional)
+ */
+ShowHotkeyTooltip(message, durationMs := 1000) {
+    try {
+        ToolTip(message)
+        SetTimer(() => ToolTip(), -durationMs)
+    } catch {
+        ; Silent fallback if ToolTip fails
+    }
+}
+
+; ==============================================================================
+; Experimental Features (commented out)
+; ==============================================================================
+
+/**
+ * Make windows borderless and fullscreen (experimental)
+ * Uncomment to enable window decoration removal
+ */
+/*
+^F10::
+{
+    try {
+        WinGetTitle(&currentWindow, "A")
+        if (currentWindow != "" && WinExist("A")) {
+            ; Remove window border (use with caution)
+            ; WinSetStyle("-0xC40000", "A")
+            ; DllCall("SetMenu", "Ptr", WinExist(), "Ptr", 0)
+        }
+    } catch {
+        ; Silent fallback
+    }
+}
+*/
+
+/**
+ * CTRL + SPACE -> set active window always on top (alternative implementation)
+ * Uncomment to enable this feature
+ */
+/*
+^SPACE::
+{
+    try {
+        WinSetAlwaysOnTop(1, "A")
+        ShowHotkeyTooltip("Window set to always on top")
+    } catch {
+        ShowHotkeyTooltip("Failed to set window on top")
+    }
+}
+*/

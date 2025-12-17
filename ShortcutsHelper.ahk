@@ -4,7 +4,7 @@
 
 ; ShortcutsHelper - Shortcut reference overlay
 ; - YAML-driven (copy `example-shortcuts/` -> `shortcuts/`)
-; - Shows global shortcuts, then active app, then the rest (A-Z)
+; - Shows active app shortcuts first, then globals, then the rest (A-Z)
 ; - Borderless, resizable, and does not steal focus on show
 
 #Include "Lib\ShortcutsSchemaParser.ahk"
@@ -17,9 +17,10 @@ global SH_CONFIG := {
     exampleFolder: A_ScriptDir "\example-shortcuts",
     iniPath: A_ScriptDir "\ShortcutsHelper.ini",
     hotkey: "#^;", ; Win + Ctrl + ;
+    watchIntervalMs: 250,
 
     ; UI
-    windowWidth: 760,
+    windowWidth: 770,
     windowHeight: 520,
     minWidth: 520,
     minHeight: 320,
@@ -48,7 +49,6 @@ global ShTitle := ""
 global ShContext := ""
 global ShCount := ""
 global ShCloseBtn := ""
-global ShCopyBtn := ""
 global ShCopyExeBtn := ""
 global ShHeaderBg := ""
 global ShFooterBg := ""
@@ -57,6 +57,10 @@ global ShBorderLeft := ""
 global ShBorderRight := ""
 global ShBorderBottom := ""
 global ShLastActiveWindow := 0
+global ShLastNonGuiWindow := 0
+global ShLastGuiW := 0
+global ShLastGuiH := 0
+global ShInSizeHandler := false
 global ShActiveExe := ""
 global ShAllDefs := [] ; Array of {title,type,displayOrder,match,entries}
 global ShRenderedRows := [] ; Array of {keys,desc,section,group}
@@ -83,16 +87,17 @@ Sh_Toggle() {
 
 Sh_GuiIsVisible() {
     global ShGui
-    if (ShGui = "")
+    if (!IsSet(ShGui) || ShGui = "")
         return false
     try return DllCall("IsWindowVisible", "ptr", ShGui.Hwnd, "int") != 0
     return false
 }
 
 Sh_Show() {
-    global SH_CONFIG, ShGui, ShLastActiveWindow
+    global SH_CONFIG, ShGui, ShLastActiveWindow, ShLastNonGuiWindow
 
     ShLastActiveWindow := WinGetID("A")
+    ShLastNonGuiWindow := ShLastActiveWindow
     Sh_EnsureShortcutsFolder()
     Sh_LoadAllYaml()
 
@@ -103,17 +108,10 @@ Sh_Show() {
     }
 
     geo := Sh_ReadWindowGeometry()
-    opts := "NA"
-    if (geo.Has("w") && geo.Has("h")) {
-        opts .= " w" geo["w"] " h" geo["h"]
-    } else {
-        opts .= " w" SH_CONFIG.windowWidth " h" SH_CONFIG.windowHeight
-    }
-    if (geo.Has("x") && geo.Has("y")) {
-        opts .= " x" geo["x"] " y" geo["y"]
-    }
-
-    ShGui.Show(opts)
+    ShGui.Show("NA")
+    Sh_ApplySavedWindowGeometry(geo)
+    SetTimer(Sh_ApplyLayoutFromCurrentSize, -1)
+    SetTimer(Sh_WatchActiveWindow, SH_CONFIG.watchIntervalMs)
 }
 
 Sh_Hide() {
@@ -123,6 +121,7 @@ Sh_Hide() {
     wasActive := WinActive("ahk_id " ShGui.Hwnd)
     Sh_SaveWindowGeometry()
     ShGui.Hide()
+    SetTimer(Sh_WatchActiveWindow, 0)
     if (wasActive)
         try WinActivate("ahk_id " ShLastActiveWindow)
 }
@@ -278,10 +277,17 @@ Sh_GetActiveDefIndex(exe, class, title) {
 }
 
 Sh_GetActiveWindowInfo() {
+    global ShGui, ShLastNonGuiWindow
     info := { exe: "", class: "", title: "" }
-    try info.exe := WinGetProcessName("A")
-    try info.class := WinGetClass("A")
-    try info.title := WinGetTitle("A")
+    winSpec := "A"
+    try {
+        activeId := WinGetID("A")
+        if (IsSet(ShGui) && ShGui != "" && activeId = ShGui.Hwnd && ShLastNonGuiWindow)
+            winSpec := "ahk_id " ShLastNonGuiWindow
+    }
+    try info.exe := WinGetProcessName(winSpec)
+    try info.class := WinGetClass(winSpec)
+    try info.title := WinGetTitle(winSpec)
     return info
 }
 
@@ -355,7 +361,7 @@ Sh_TitleContains(needleOrList, haystack) {
 ; ============================================================
 
 Sh_CreateGui() {
-    global SH_CONFIG, ShGui, ShLv, ShSearch, ShTitle, ShContext, ShCount, ShCloseBtn, ShCopyBtn, ShCopyExeBtn
+    global SH_CONFIG, ShGui, ShLv, ShSearch, ShTitle, ShContext, ShCount, ShCloseBtn, ShCopyExeBtn
     global ShHeaderBg, ShFooterBg, ShBorderTop, ShBorderLeft, ShBorderRight, ShBorderBottom
 
     ShGui := Gui("+AlwaysOnTop +ToolWindow +Resize -Caption")
@@ -371,7 +377,7 @@ Sh_CreateGui() {
     ShTitle := ShGui.Add("Text", "x" SH_CONFIG.padding " y10 w220 h20 BackgroundTrans c" SH_CONFIG.text, "Shortcuts")
     ShTitle.SetFont("s11 w600", "Segoe UI")
 
-    ShContext := ShGui.Add("Text", "x" (SH_CONFIG.padding + 220) " y12 w220 h18 BackgroundTrans c" SH_CONFIG.muted, "")
+    ShContext := ShGui.Add("Text", "x0 y0 w220 h16 BackgroundTrans c" SH_CONFIG.muted, "")
     ShContext.SetFont("s9", "Segoe UI")
 
     ShSearch := ShGui.Add("Edit", "x0 y0 w100 h22 -E0x200", "")
@@ -381,10 +387,6 @@ Sh_CreateGui() {
     ShCopyExeBtn := ShGui.Add("Button", "x0 y0 w36 h24", "exe")
     ShCopyExeBtn.SetFont("s8 w600", "Segoe UI")
     ShCopyExeBtn.OnEvent("Click", (*) => Sh_CopyActiveExe())
-
-    ShCopyBtn := ShGui.Add("Button", "x0 y0 w28 h24", "⧉")
-    ShCopyBtn.SetFont("s10 w600", "Segoe UI")
-    ShCopyBtn.OnEvent("Click", (*) => Sh_CopyDiagnostics())
 
     ShCloseBtn := ShGui.Add("Button", "x0 y0 w28 h24", "×")
     ShCloseBtn.SetFont("s11 w600", "Segoe UI")
@@ -396,22 +398,30 @@ Sh_CreateGui() {
     ShCount.SetFont("s8", "Segoe UI")
 
     ; List
+    pad := SH_CONFIG.padding
+    lvY := SH_CONFIG.headerHeight + SH_CONFIG.footerHeight
+    lvW := SH_CONFIG.windowWidth - (2 * pad)
+    lvH := SH_CONFIG.windowHeight - lvY
+    if (lvW < 50)
+        lvW := 50
+    if (lvH < 50)
+        lvH := 50
     ShLv := ShGui.Add(
         "ListView",
-        "x0 y0 w" SH_CONFIG.windowWidth " h" SH_CONFIG.windowHeight
+        "x" pad " y" (lvY + 4) " w" lvW " h" (lvH - 8)
             " Background" SH_CONFIG.bg " c" SH_CONFIG.text
-            " -Multi +Hdr +Report +LV0x10000",
+            " -Multi -Hdr +Report +LV0x10000",
         ["Shortcut", "Description"]
     )
     ShLv.SetFont("s9", "Segoe UI")
-    ShLv.ModifyCol(1, 220)
-    ShLv.ModifyCol(2, 520)
+    ShLv.ModifyCol(1, 270)
+    ShLv.ModifyCol(2, 420)
 
     ShGui.OnEvent("Close", (*) => Sh_Hide())
     ShGui.OnEvent("Escape", (*) => Sh_Hide())
-    ShGui.OnEvent("Size", Sh_OnSize)
 
     OnMessage(0x4E, Sh_WmNotify) ; WM_NOTIFY (ListView selection + custom draw)
+    OnMessage(0x0005, Sh_WmSize) ; WM_SIZE (more reliable than Gui.OnEvent("Size") for -Caption)
 
     ; Border (1px) - add last so it stays on top
     ShBorderTop := ShGui.Add("Text", "x0 y0 w" SH_CONFIG.windowWidth " h1 Background" SH_CONFIG.border)
@@ -425,11 +435,57 @@ Sh_CreateGui() {
     Sh_RefreshList()
 }
 
+Sh_ApplyLayoutFromCurrentSize() {
+    global ShGui
+    if (!IsSet(ShGui) || ShGui = "")
+        return
+    w := 0
+    h := 0
+    if (!Sh_GetClientSize(ShGui.Hwnd, &w, &h))
+        return
+    Sh_OnSize(ShGui, 0, w, h)
+}
+
+Sh_ApplySavedWindowGeometry(geo) {
+    global SH_CONFIG, ShGui
+    if (!IsSet(ShGui) || ShGui = "")
+        return
+
+    x := ""
+    y := ""
+    w := SH_CONFIG.windowWidth
+    h := SH_CONFIG.windowHeight
+
+    if (IsObject(geo)) {
+        if (geo.Has("w"))
+            w := geo["w"]
+        if (geo.Has("h"))
+            h := geo["h"]
+        if (geo.Has("x"))
+            x := geo["x"]
+        if (geo.Has("y"))
+            y := geo["y"]
+    }
+
+    try WinMove(x, y, w, h, "ahk_id " ShGui.Hwnd)
+}
+
+Sh_GetClientSize(hwnd, &w, &h) {
+    rc := Buffer(16, 0) ; RECT: left, top, right, bottom
+    if (!DllCall("GetClientRect", "ptr", hwnd, "ptr", rc, "int"))
+        return false
+    w := NumGet(rc, 8, "int") - NumGet(rc, 0, "int")
+    h := NumGet(rc, 12, "int") - NumGet(rc, 4, "int")
+    return (w > 0 && h > 0)
+}
+
 Sh_OnSize(guiObj, minMax, width, height) {
-    global SH_CONFIG, ShLv, ShSearch, ShCloseBtn, ShCopyBtn, ShCopyExeBtn, ShCount, ShContext
+    global SH_CONFIG, ShLv, ShSearch, ShCloseBtn, ShCopyExeBtn, ShCount, ShContext, ShLastGuiW, ShLastGuiH
     global ShHeaderBg, ShFooterBg, ShBorderTop, ShBorderLeft, ShBorderRight, ShBorderBottom
     if (minMax = -1)
         return
+    ShLastGuiW := width
+    ShLastGuiH := height
 
     headerH := SH_CONFIG.headerHeight
     footerH := SH_CONFIG.footerHeight
@@ -445,17 +501,40 @@ Sh_OnSize(guiObj, minMax, width, height) {
     ShHeaderBg.Move(0, 0, width, headerH)
     ShFooterBg.Move(0, headerH, width, footerH)
 
-    searchW := 260
+    maxSearchW := 260
+    minSearchW := 140
     closeW := 34
-    copyW := 34
     copyExeW := 42
-    topY := 10
+    topY := 6
+
+    rightBlockW := closeW + 6 + copyExeW
+    searchRightX := width - pad - rightBlockW - 10
+    searchLeftMin := pad + 220 + 10
+    searchW := searchRightX - searchLeftMin
+    if (searchW > maxSearchW)
+        searchW := maxSearchW
+    if (searchW < minSearchW)
+        searchW := minSearchW
+    if (searchRightX - searchW < searchLeftMin) {
+        searchW := searchRightX - searchLeftMin
+        if (searchW < 0)
+            searchW := 0
+    }
+    searchX := searchRightX - searchW
 
     ShCloseBtn.Move(width - pad - closeW, topY - 2, closeW, 26)
-    ShCopyBtn.Move(width - pad - closeW - 6 - copyW, topY - 2, copyW, 26)
-    ShCopyExeBtn.Move(width - pad - closeW - 6 - copyW - 6 - copyExeW, topY - 1, copyExeW, 24)
-    ShSearch.Move(width - pad - closeW - 6 - copyW - 6 - copyExeW - 10 - searchW, topY, searchW, 22)
-    ShContext.Move(pad + 220, topY + 2, width - (pad + 220) - (pad + closeW + 6 + copyW + 6 + copyExeW + 10 + searchW) - 10, 18)
+    ShCopyExeBtn.Move(width - pad - closeW - 6 - copyExeW, topY - 1, copyExeW, 24)
+    ShSearch.Move(searchX, topY, searchW, 22)
+
+    contextY := topY + 22
+    contextH := headerH - contextY
+    if (contextH < 10)
+        contextH := 10
+    contextX := searchX
+    contextW := (width - pad) - contextX
+    if (contextW < 0)
+        contextW := 0
+    ShContext.Move(contextX, contextY, contextW, contextH)
 
     ShCount.Move(pad, headerH + 5, width - (2 * pad), 18)
 
@@ -469,20 +548,20 @@ Sh_OnSize(guiObj, minMax, width, height) {
     ShLv.ModifyCol(2, width - (2 * pad) - 240)
 }
 
-Sh_CopyDiagnostics() {
-    global ShLoadStats
-    lines := []
-    lines.Push("ShortcutsHelper diagnostics")
-    lines.Push("files=" ShLoadStats.files " loaded=" ShLoadStats.loaded " errors=" ShLoadStats.errors " entries=" (ShLoadStats.HasOwnProp("entries") ? ShLoadStats.entries : 0))
-    if (ShLoadStats.HasOwnProp("details")) {
-        for line in ShLoadStats.details {
-            lines.Push(line)
-        }
+Sh_WmSize(wParam, lParam, msg, hwnd) {
+    global ShGui, ShInSizeHandler
+    if (!IsSet(ShGui) || ShGui = "" || hwnd != ShGui.Hwnd)
+        return
+    if (ShInSizeHandler)
+        return
+    ShInSizeHandler := true
+    try {
+        width := lParam & 0xFFFF
+        height := (lParam >> 16) & 0xFFFF
+        Sh_OnSize(ShGui, wParam, width, height)
+    } finally {
+        ShInSizeHandler := false
     }
-    A_Clipboard := ""
-    A_Clipboard := Sh_JoinArray(lines, "`r`n")
-    ToolTip("Diagnostics copied", , , 19)
-    SetTimer(() => ToolTip(, , , 19), -900)
 }
 
 Sh_CopyActiveExe() {
@@ -510,7 +589,7 @@ Sh_JoinArray(arr, sep := ",") {
 
 Sh_WmNotify(wParam, lParam, msg, hwnd) {
     global ShGui, ShLv, ShRenderedRows, SH_CONFIG
-    if (ShGui = "" || ShLv = "")
+    if (!IsSet(ShGui) || !IsSet(ShLv) || ShGui = "" || ShLv = "")
         return
     if (hwnd != ShGui.Hwnd)
         return
@@ -583,7 +662,7 @@ Sh_ColorRef(hexRgb) {
 }
 
 Sh_WmNcHitTest(wParam, lParam, msg, hwnd) {
-    global SH_CONFIG, ShGui, ShSearch, ShCloseBtn, ShCopyBtn, ShCopyExeBtn
+    global SH_CONFIG, ShGui, ShSearch, ShCloseBtn, ShCopyExeBtn
     if (ShGui = "" || hwnd != ShGui.Hwnd)
         return
 
@@ -625,7 +704,7 @@ Sh_WmNcHitTest(wParam, lParam, msg, hwnd) {
     ; Drag zone: header area, excluding interactive controls.
     if (cy <= SH_CONFIG.headerHeight) {
         MouseGetPos(, , , &ctrlHwnd, 2)
-        if (ctrlHwnd = ShSearch.Hwnd || ctrlHwnd = ShCloseBtn.Hwnd || ctrlHwnd = ShCopyBtn.Hwnd || ctrlHwnd = ShCopyExeBtn.Hwnd)
+        if (ctrlHwnd = ShSearch.Hwnd || ctrlHwnd = ShCloseBtn.Hwnd || ctrlHwnd = ShCopyExeBtn.Hwnd)
             return 0x1 ; HTCLIENT
         return 0x2 ; HTCAPTION
     }
@@ -637,9 +716,30 @@ Sh_WmNcHitTest(wParam, lParam, msg, hwnd) {
 ; Rendering
 ; ============================================================
 
+Sh_WatchActiveWindow() {
+    global SH_CONFIG, ShGui, ShLastNonGuiWindow
+    if (!IsSet(ShGui) || ShGui = "" || !Sh_GuiIsVisible()) {
+        SetTimer(Sh_WatchActiveWindow, 0)
+        return
+    }
+
+    try activeId := WinGetID("A")
+    catch
+        return
+
+    ; If the overlay itself is active (e.g., typing in search), keep the last non-GUI window context.
+    if (activeId = ShGui.Hwnd)
+        return
+
+    if (activeId != ShLastNonGuiWindow) {
+        ShLastNonGuiWindow := activeId
+        Sh_RefreshList()
+    }
+}
+
 Sh_RefreshList() {
     global ShGui, ShLv, ShSearch, ShContext, ShCount, ShAllDefs, ShRenderedRows, ShLoadStats, ShActiveExe
-    if (ShGui = "" || ShLv = "")
+    if (!IsSet(ShGui) || !IsSet(ShLv) || ShGui = "" || ShLv = "")
         return
 
     ShLv.Delete()
@@ -678,17 +778,17 @@ Sh_RefreshList() {
     totalItems := 0
     shownItems := 0
 
-    ; Globals first
-    for obj in globalDefs {
-        totalItems += obj.def.entries.Length
-        shownItems += Sh_AddSection(obj.def.title, obj.def.entries, search)
-    }
-
-    ; Active app next (if any)
+    ; Active app first (if any)
     if (activeIdx) {
         def := ShAllDefs[activeIdx]
         totalItems += def.entries.Length
         shownItems += Sh_AddSection(def.title, def.entries, search)
+    }
+
+    ; Globals next
+    for obj in globalDefs {
+        totalItems += obj.def.entries.Length
+        shownItems += Sh_AddSection(obj.def.title, obj.def.entries, search)
     }
 
     ; Remaining apps A-Z (excluding active)
@@ -803,19 +903,35 @@ Sh_SaveWindowGeometry() {
     global SH_CONFIG, ShGui
     if (!Sh_GuiIsVisible())
         return
-    WinGetPos(&x, &y, &w, &h, "ahk_id " ShGui.Hwnd)
-    IniWrite(x, SH_CONFIG.iniPath, "Window", "x")
-    IniWrite(y, SH_CONFIG.iniPath, "Window", "y")
-    IniWrite(w, SH_CONFIG.iniPath, "Window", "w")
-    IniWrite(h, SH_CONFIG.iniPath, "Window", "h")
+    x := ""
+    y := ""
+    w := ""
+    h := ""
+    try WinGetPos(&x, &y, &w, &h, "ahk_id " ShGui.Hwnd)
+    catch
+        return
+    IniWrite(Integer(x), SH_CONFIG.iniPath, "Window", "x")
+    IniWrite(Integer(y), SH_CONFIG.iniPath, "Window", "y")
+    IniWrite(Integer(w), SH_CONFIG.iniPath, "Window", "w")
+    IniWrite(Integer(h), SH_CONFIG.iniPath, "Window", "h")
 }
 
 Sh_ReadWindowGeometry() {
     global SH_CONFIG
     geo := Map()
-    try geo["x"] := IniRead(SH_CONFIG.iniPath, "Window", "x")
-    try geo["y"] := IniRead(SH_CONFIG.iniPath, "Window", "y")
-    try geo["w"] := IniRead(SH_CONFIG.iniPath, "Window", "w")
-    try geo["h"] := IniRead(SH_CONFIG.iniPath, "Window", "h")
+    try {
+        x := IniRead(SH_CONFIG.iniPath, "Window", "x", "")
+        y := IniRead(SH_CONFIG.iniPath, "Window", "y", "")
+        w := IniRead(SH_CONFIG.iniPath, "Window", "w", "")
+        h := IniRead(SH_CONFIG.iniPath, "Window", "h", "")
+        if (RegExMatch(x, "^-?\\d+$"))
+            geo["x"] := Integer(x)
+        if (RegExMatch(y, "^-?\\d+$"))
+            geo["y"] := Integer(y)
+        if (RegExMatch(w, "^\\d+$"))
+            geo["w"] := Integer(w)
+        if (RegExMatch(h, "^\\d+$"))
+            geo["h"] := Integer(h)
+    }
     return geo
 }
