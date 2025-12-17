@@ -18,6 +18,8 @@ global SH_CONFIG := {
     iniPath: A_ScriptDir "\ShortcutsHelper.ini",
     hotkey: "#^;", ; Win + Ctrl + ;
     watchIntervalMs: 250,
+    ; Ignore transient system UI windows (prevents Alt+Tab / Task View from triggering refreshes).
+    ignoreWindowClasses: ["MultitaskingViewFrame", "TaskSwitcherWnd", "XamlExplorerHostIslandWindow"],
 
     ; UI
     windowWidth: 770,
@@ -36,6 +38,12 @@ global SH_CONFIG := {
     text: "e5e7eb",
     muted: "93a4b8",
     accent: "22c55e",
+    globalAccent: "60a5fa",
+    appAccent: "fda4af",
+    sectionBgActive: "0f2a1c",
+    sectionBgGlobal: "0f223d",
+    groupBgActive: "0d2318",
+    groupBgGlobal: "0d1d33",
     border: "22304a"
 }
 
@@ -62,8 +70,9 @@ global ShLastGuiW := 0
 global ShLastGuiH := 0
 global ShInSizeHandler := false
 global ShActiveExe := ""
+global ShLastActiveDefIdx := 0
 global ShAllDefs := [] ; Array of {title,type,displayOrder,match,entries}
-global ShRenderedRows := [] ; Array of {keys,desc,section,group}
+global ShRenderedRows := [] ; Array of {kind,style,keys,desc,section,group}
 global ShLoadStats := { files: 0, loaded: 0, errors: 0, entries: 0, details: [] }
 global ShColorCache := Map()
 
@@ -289,6 +298,29 @@ Sh_GetActiveWindowInfo() {
     try info.class := WinGetClass(winSpec)
     try info.title := WinGetTitle(winSpec)
     return info
+}
+
+Sh_IsIgnoredWindow(hwnd) {
+    global SH_CONFIG
+    if (!IsSet(SH_CONFIG) || !SH_CONFIG.HasOwnProp("ignoreWindowClasses"))
+        return false
+    cls := ""
+    try cls := WinGetClass("ahk_id " hwnd)
+    catch
+        return false
+    for c in SH_CONFIG.ignoreWindowClasses {
+        if (cls = c)
+            return true
+    }
+    ; Heuristic: while Alt is held, ignore transient Explorer-hosted UI (Alt+Tab / Task View),
+    ; but do NOT ignore real File Explorer windows (CabinetWClass).
+    if (GetKeyState("Alt", "P")) {
+        exe := ""
+        try exe := WinGetProcessName("ahk_id " hwnd)
+        if (StrLower(exe) = "explorer.exe" && cls != "CabinetWClass")
+            return true
+    }
+    return false
 }
 
 Sh_ScoreMatch(matchObj, exe, class, title) {
@@ -623,18 +655,39 @@ Sh_WmNotify(wParam, lParam, msg, hwnd) {
             return 0x20 ; CDRF_NOTIFYITEMDRAW
         }
         if (drawStage = 0x10001) { ; CDDS_ITEMPREPAINT
+            ; In report view, colors are applied per-subitem. Ask for subitem draw callbacks.
+            return 0x20 ; CDRF_NOTIFYSUBITEMDRAW
+        }
+        if (drawStage = 0x30001) { ; CDDS_ITEMPREPAINT | CDDS_SUBITEM
             row := NumGet(lParam, offItemSpec, "UPtr") + 1
             if (row >= 1 && row <= ShRenderedRows.Length) {
                 kind := ""
                 try kind := ShRenderedRows[row].kind
                 if (kind = "section") {
-                    NumPut("uint", Sh_ColorRef(SH_CONFIG.accent), lParam, nmcdSize)       ; clrText
-                    NumPut("uint", Sh_ColorRef(SH_CONFIG.panel2), lParam, nmcdSize + 4)  ; clrTextBk
+                    style := "app"
+                    try style := ShRenderedRows[row].style
+                    if (style = "active") {
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.accent), lParam, nmcdSize)                 ; clrText
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.sectionBgActive), lParam, nmcdSize + 4)   ; clrTextBk
+                    } else if (style = "global") {
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.globalAccent), lParam, nmcdSize)
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.sectionBgGlobal), lParam, nmcdSize + 4)
+                    } else {
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.appAccent), lParam, nmcdSize)
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.panel2), lParam, nmcdSize + 4)
+                    }
                     return 0x2 ; CDRF_NEWFONT
                 }
                 if (kind = "group") {
-                    NumPut("uint", Sh_ColorRef(SH_CONFIG.muted), lParam, nmcdSize)
-                    NumPut("uint", Sh_ColorRef(SH_CONFIG.panel), lParam, nmcdSize + 4)
+                    style := "app"
+                    try style := ShRenderedRows[row].style
+                    NumPut("uint", Sh_ColorRef(SH_CONFIG.muted), lParam, nmcdSize) ; clrText
+                    if (style = "active")
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.groupBgActive), lParam, nmcdSize + 4)
+                    else if (style = "global")
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.groupBgGlobal), lParam, nmcdSize + 4)
+                    else
+                        NumPut("uint", Sh_ColorRef(SH_CONFIG.panel), lParam, nmcdSize + 4)
                     return 0x2
                 }
             }
@@ -717,7 +770,7 @@ Sh_WmNcHitTest(wParam, lParam, msg, hwnd) {
 ; ============================================================
 
 Sh_WatchActiveWindow() {
-    global SH_CONFIG, ShGui, ShLastNonGuiWindow
+    global SH_CONFIG, ShGui, ShLastNonGuiWindow, ShLastActiveDefIdx
     if (!IsSet(ShGui) || ShGui = "" || !Sh_GuiIsVisible()) {
         SetTimer(Sh_WatchActiveWindow, 0)
         return
@@ -732,13 +785,24 @@ Sh_WatchActiveWindow() {
         return
 
     if (activeId != ShLastNonGuiWindow) {
+        if (Sh_IsIgnoredWindow(activeId))
+            return
         ShLastNonGuiWindow := activeId
-        Sh_RefreshList()
+        info := Sh_GetActiveWindowInfo()
+        activeIdx := Sh_GetActiveDefIndex(info.exe, info.class, info.title)
+
+        ; Only redraw when we transition into/out of a matched app, or between two different matched apps.
+        needsRedraw := (activeIdx != ShLastActiveDefIdx) && (activeIdx != 0 || ShLastActiveDefIdx != 0)
+        ShLastActiveDefIdx := activeIdx
+
+        Sh_UpdateContext(info, activeIdx)
+        if (needsRedraw)
+            Sh_RefreshList()
     }
 }
 
 Sh_RefreshList() {
-    global ShGui, ShLv, ShSearch, ShContext, ShCount, ShAllDefs, ShRenderedRows, ShLoadStats, ShActiveExe
+    global ShGui, ShLv, ShSearch, ShContext, ShCount, ShAllDefs, ShRenderedRows, ShLoadStats, ShActiveExe, ShLastActiveDefIdx
     if (!IsSet(ShGui) || !IsSet(ShLv) || ShGui = "" || ShLv = "")
         return
 
@@ -748,6 +812,7 @@ Sh_RefreshList() {
     info := Sh_GetActiveWindowInfo()
     ShActiveExe := info.exe
     activeIdx := Sh_GetActiveDefIndex(info.exe, info.class, info.title)
+    ShLastActiveDefIdx := activeIdx
 
     globalDefs := []
     appDefs := []
@@ -761,17 +826,7 @@ Sh_RefreshList() {
     Sh_SortDefs(globalDefs)
     Sh_SortDefs(appDefs)
 
-    activeLabel := ""
-    if (activeIdx) {
-        activeLabel := ShAllDefs[activeIdx].title
-    }
-    if (info.exe != "") {
-        ShContext.Text := activeLabel != ""
-            ? ("Active: " activeLabel " • " info.exe)
-            : ("Active: (no match) • " info.exe)
-    } else {
-        ShContext.Text := activeLabel != "" ? ("Active: " activeLabel) : "Active: (no match)"
-    }
+    Sh_UpdateContext(info, activeIdx)
 
     search := ShSearch.Text
 
@@ -782,13 +837,13 @@ Sh_RefreshList() {
     if (activeIdx) {
         def := ShAllDefs[activeIdx]
         totalItems += def.entries.Length
-        shownItems += Sh_AddSection(def.title, def.entries, search)
+        shownItems += Sh_AddSection(def.title, def.entries, search, "active")
     }
 
     ; Globals next
     for obj in globalDefs {
         totalItems += obj.def.entries.Length
-        shownItems += Sh_AddSection(obj.def.title, obj.def.entries, search)
+        shownItems += Sh_AddSection(obj.def.title, obj.def.entries, search, "global")
     }
 
     ; Remaining apps A-Z (excluding active)
@@ -796,7 +851,7 @@ Sh_RefreshList() {
         if (obj.idx = activeIdx)
             continue
         totalItems += obj.def.entries.Length
-        shownItems += Sh_AddSection(obj.def.title, obj.def.entries, search)
+        shownItems += Sh_AddSection(obj.def.title, obj.def.entries, search, "app")
     }
 
     if (totalItems = 0) {
@@ -816,6 +871,22 @@ Sh_RefreshList() {
     }
 
     ShCount.Text := search != "" ? (shownItems " matches  •  " totalItems " total") : (totalItems " shortcuts")
+}
+
+Sh_UpdateContext(info, activeIdx) {
+    global ShContext, ShAllDefs, ShActiveExe
+    if (!IsSet(ShContext) || ShContext = "")
+        return
+
+    ShActiveExe := info.exe
+    activeLabel := activeIdx ? ShAllDefs[activeIdx].title : ""
+    if (info.exe != "") {
+        ShContext.Text := activeLabel != ""
+            ? ("Active: " activeLabel " • " info.exe)
+            : ("Active: (no match) • " info.exe)
+    } else {
+        ShContext.Text := activeLabel != "" ? ("Active: " activeLabel) : "Active: (no match)"
+    }
 }
 
 Sh_SortDefs(defArray) {
@@ -853,7 +924,7 @@ Sh_SortInPlace(arr, lessFn) {
     }
 }
 
-Sh_AddSection(title, entries, searchText) {
+Sh_AddSection(title, entries, searchText, sectionStyle := "app") {
     global ShLv, ShRenderedRows
 
     filtered := []
@@ -866,7 +937,7 @@ Sh_AddSection(title, entries, searchText) {
 
     ; Section header row
     ShLv.Add("", "— " title " —", "")
-    ShRenderedRows.Push({ kind: "section", keys: "", desc: "", section: title, group: "" })
+    ShRenderedRows.Push({ kind: "section", style: sectionStyle, keys: "", desc: "", section: title, group: "" })
 
     lastGroup := "__none__"
     shown := 0
@@ -874,11 +945,11 @@ Sh_AddSection(title, entries, searchText) {
         groupName := entry.group != "" ? entry.group : ""
         if (groupName != "" && groupName != lastGroup) {
             ShLv.Add("", "  " groupName, "")
-            ShRenderedRows.Push({ kind: "group", keys: "", desc: "", section: title, group: groupName })
+            ShRenderedRows.Push({ kind: "group", style: sectionStyle, keys: "", desc: "", section: title, group: groupName })
             lastGroup := groupName
         }
         ShLv.Add("", entry.keys, entry.desc)
-        ShRenderedRows.Push({ kind: "item", keys: entry.keys, desc: entry.desc, section: title, group: groupName })
+        ShRenderedRows.Push({ kind: "item", style: sectionStyle, keys: entry.keys, desc: entry.desc, section: title, group: groupName })
         shown += 1
     }
     return shown
