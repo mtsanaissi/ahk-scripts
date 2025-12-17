@@ -131,9 +131,9 @@ SaveAndMoveWindow(hwnd, title) {
 /**
  * Show a tooltip with consistent styling and automatic cleanup
  * @param message - Text to display
- * @param durationMs - How long to show (optional, defaults to WINDOW_MOVE_DELAY_MS)
+ * @param durationMs - How long to show (optional, defaults to TOOLTIP_DURATION_MS)
  */
-ShowTooltip(message, durationMs := WINDOW_MOVE_DELAY_MS) {
+ShowTooltip(message, durationMs := TOOLTIP_DURATION_MS) {
     try {
         ToolTip(message)
         SetTimer(() => ToolTip(), -durationMs)

@@ -1,4 +1,5 @@
 ﻿#Requires AutoHotkey v2.0
+#SingleInstance Force
 
 ; ==============================================================================
 ; Global Hotkeys - System-wide Keyboard and Mouse Remaps
@@ -48,29 +49,38 @@
 
 ^!s::
 {
+    clipSaved := ClipboardAll()
+    keepInClipboard := GetKeyState("Shift", "P")  ; Hold Shift to keep the transformed text in the clipboard
+    didTransform := false
+
     try {
         ; Clear clipboard and copy selected text
         A_Clipboard := ""
         Send("^c")
-        
+
         ; Wait for clipboard content with timeout
         if (!ClipWait(2)) {
             ; No text was selected or clipboard operation timed out
             return
         }
-        
+
         ; Replace newlines with comma and space for CSV format
         processedText := StrReplace(A_Clipboard, "`r`n", ", ")
         processedText := StrReplace(processedText, "`n", ", ")
-        
+
         ; Put processed text back to clipboard
         A_Clipboard := processedText
-        
+        didTransform := true
+
         ; Paste the processed text
         Send("^v")
-    } catch Error as err {
-        ; Graceful fallback: try to restore original clipboard
-        ; Silent fallback: Clipboard operations failed
+    } catch {
+        ; Silent fallback: clipboard operations failed
+    } finally {
+        if (!keepInClipboard || !didTransform) {
+            ; Restore after paste (prevents clobbering clipboard history)
+            SetTimer(() => (A_Clipboard := clipSaved), -120)
+        }
     }
 }
 

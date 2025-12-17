@@ -25,12 +25,13 @@ BlockerGui.SetFont("s9 bold cWhite", "Segoe UI")
 BlockerGui.Add("Text", "x0 y35 w" BoxWidth " Center", "NO GIT!")
 
 ; Start the monitoring loop (500ms = 2 times per second)
-SetTimer CheckPBI, 400
+SetTimer(CheckPBI, 400)
 
 CheckPBI()
 {
     global RightOffset, TopOffset, BoxWidth, BoxHeight, BoxTransparency
     global PBI_MAIN_WINDOW_ID, PBI_ANY_WINDOW_ID
+    global BlockerGui
     
     ; Static variables remember their values between function calls
     static LastX := 0, LastY := 0, LastW := 0, LastH := 0, IsVisible := false
@@ -70,7 +71,7 @@ CheckPBI()
     try 
     {
         ; This targets the main window and ignores popups/modals
-        WinGetPos &PbiX, &PbiY, &PbiW, &PbiH, PBI_MAIN_WINDOW_ID
+        WinGetPos(&PbiX, &PbiY, &PbiW, &PbiH, PBI_MAIN_WINDOW_ID)
     }
     catch
     {

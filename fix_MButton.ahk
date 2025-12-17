@@ -12,7 +12,7 @@ MButton::
 {
     try {
         ; Prevent double-click within 300ms threshold
-        if (A_TimeSincePriorHotkey && A_TimeSincePriorHotkey < 300) {
+        if (A_PriorHotkey = "MButton" && A_TimeSincePriorHotkey < 300) {
             ; Silent operation - no tooltip to avoid distraction
             return
         }

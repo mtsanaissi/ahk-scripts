@@ -49,7 +49,7 @@ Small global remaps and helpers (media controls, text transforms, and window pin
 - `Win + V` — Remapped to `Ctrl + '` (intended for Ditto clipboard manager)
 - `Ctrl + Volume_Down` — Previous media track (often mapped to mouse MB4)
 - `Ctrl + Volume_Up` — Next media track (often mapped to mouse MB5)
-- `Ctrl + Alt + S` — Replace selected text newlines with `, ` and paste back
+- `Ctrl + Alt + S` — Replace selected text newlines with `, ` and paste back (restores clipboard; hold `Shift` to keep transformed text)
 - `Ctrl + F11` — Pin active window on top and auto-restore it if minimized
 - `Ctrl + F12` — Undo the above (stop auto-restore + unpin)
 - `Hold LButton` + `Volume_Up` — Lock mouse movement (until LButton is released)

@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#SingleInstance Force
 
 ; ==============================================================================
 ; Smart Hotstrings - Editor/Terminal Text Expansions
