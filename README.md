@@ -47,6 +47,7 @@ Small global remaps and helpers (media controls, text transforms, and window pin
 
 ### Shortcuts
 - `Win + V` — Remapped to `Ctrl + '` (intended for Ditto clipboard manager)
+- `Win + S` — Send `Ctrl + Alt + NumLock`
 - `Ctrl + Volume_Down` — Previous media track (often mapped to mouse MB4)
 - `Ctrl + Volume_Up` — Next media track (often mapped to mouse MB5)
 - `Ctrl + Alt + S` — Replace selected text newlines with `, ` and paste back (restores clipboard; hold `Shift` to keep transformed text)

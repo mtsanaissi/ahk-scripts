@@ -24,14 +24,14 @@ global SH_CONFIG := {
     ; UI
     windowWidth: 770,
     windowHeight: 520,
-    minWidth: 520,
+    minWidth: 420,
     minHeight: 320,
     headerHeight: 44,
     footerHeight: 26,
     padding: 12,
     resizeGrip: 8,
 
-    ; Colors (different look from NeatClipboard)
+    ; Colors
     bg: "0b1220",
     panel: "0f172a",
     panel2: "111c33",

@@ -16,6 +16,9 @@
 ; Useful for Ditto (clipboard manager) compatibility
 #v::^'
 
+; Win+S -> CTRL+ALT+NumLock (I set this to open Everything search)
+#s::Send("^!{NumLock}")
+
 ; ==============================================================================
 ; Media Control (Mouse Buttons)
 ; ==============================================================================
