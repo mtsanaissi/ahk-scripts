@@ -19,6 +19,40 @@
 ; Win+S -> CTRL+ALT+NumLock (I set this to open Everything search)
 #s::Send("^!{NumLock}")
 
+; CTRL+ALT+V -> Send current clipboard content as keystrokes
+^!v::
+{
+    try {
+        ; Save current clipboard
+        clipSaved := ClipboardAll()
+        
+        ; Get current clipboard content
+        clipboardContent := A_Clipboard
+        
+        ; Validate clipboard content
+        if (clipboardContent = "") {
+            ShowHotkeyTooltip("Clipboard is empty")
+            return
+        }
+        
+        ; Send clipboard content as text keystrokes
+        ; Using SendText for literal text (no special character interpretation)
+        SendText(clipboardContent)
+        
+        ShowHotkeyTooltip("Clipboard content sent")
+        
+    } catch Error as err {
+        ShowHotkeyTooltip("Failed to send clipboard content")
+    } finally {
+        ; Restore original clipboard
+        try {
+            A_Clipboard := clipSaved
+        } catch {
+            ; Silent fallback if clipboard restore fails
+        }
+    }
+}
+
 ; ==============================================================================
 ; Media Control (Mouse Buttons)
 ; ==============================================================================

@@ -83,6 +83,9 @@ global ShColorCache := Map()
 ; ============================================================
 Hotkey(SH_CONFIG.hotkey, (*) => Sh_Toggle())
 
+; Ensure geometry is saved on script exit
+OnExit((*) => Sh_ExitHandler())
+
 ; ============================================================
 ; Hotkey Actions
 ; ============================================================
@@ -118,9 +121,10 @@ Sh_Show() {
         Sh_RefreshList()
     }
 
-    geo := Sh_ReadWindowGeometry()
+    ; Load and apply window geometry before showing
+    geo := Sh_LoadWindowGeometry()
     ShGui.Show("NA")
-    Sh_ApplySavedWindowGeometry(geo)
+    Sh_ApplyWindowGeometry(geo)
     SetTimer(Sh_ApplyLayoutFromCurrentSize, -1)
     SetTimer(Sh_WatchActiveWindow, SH_CONFIG.watchIntervalMs)
 }
@@ -130,7 +134,10 @@ Sh_Hide() {
     if (ShGui = "")
         return
     wasActive := WinActive("ahk_id " ShGui.Hwnd)
+    
+    ; Save window geometry before hiding
     Sh_SaveWindowGeometry()
+    
     ShGui.Hide()
     SetTimer(Sh_WatchActiveWindow, 0)
     if (wasActive)
@@ -465,6 +472,10 @@ Sh_CreateGui() {
 
     OnMessage(0x84, Sh_WmNcHitTest) ; WM_NCHITTEST
 
+    ; Apply initial geometry from config (will be overridden by saved geometry if available)
+    ShGui.Width := SH_CONFIG.windowWidth
+    ShGui.Height := SH_CONFIG.windowHeight
+    
     Sh_OnSize(ShGui, 0, SH_CONFIG.windowWidth, SH_CONFIG.windowHeight)
     Sh_RefreshList()
 }
@@ -480,29 +491,6 @@ Sh_ApplyLayoutFromCurrentSize() {
     Sh_OnSize(ShGui, 0, w, h)
 }
 
-Sh_ApplySavedWindowGeometry(geo) {
-    global SH_CONFIG, ShGui
-    if (!IsSet(ShGui) || ShGui = "")
-        return
-
-    x := SH_CONFIG.windowX
-    y := SH_CONFIG.windowY
-    w := SH_CONFIG.windowWidth
-    h := SH_CONFIG.windowHeight
-
-    if (IsObject(geo)) {
-        if (geo.Has("w"))
-            w := geo["w"]
-        if (geo.Has("h"))
-            h := geo["h"]
-        if (geo.Has("x"))
-            x := geo["x"]
-        if (geo.Has("y"))
-            y := geo["y"]
-    }
-
-    try WinMove(x, y, w, h, "ahk_id " ShGui.Hwnd)
-}
 
 Sh_GetClientSize(hwnd, &w, &h) {
     rc := Buffer(16, 0) ; RECT: left, top, right, bottom
@@ -972,10 +960,54 @@ Sh_EntryMatches(entry, needle) {
 ; Window persistence
 ; ============================================================
 
+Sh_ExitHandler() {
+    global ShGui
+    if (IsSet(ShGui) && ShGui != "") {
+        Sh_SaveWindowGeometry()
+    }
+}
+
+Sh_LoadWindowGeometry() {
+    global SH_CONFIG
+    geo := Map()
+    
+    ; Ensure INI file exists and is readable
+    if (!FileExist(SH_CONFIG.iniPath)) {
+        return geo
+    }
+    
+    ; Read values with proper UTF-16LE handling
+    try {
+        ; Use FileRead to handle UTF-16LE encoding properly
+        FileRead(SH_CONFIG.iniPath, "UTF-16")
+        
+        x := IniRead(SH_CONFIG.iniPath, "Window", "x", SH_CONFIG.windowX)
+        y := IniRead(SH_CONFIG.iniPath, "Window", "y", SH_CONFIG.windowY)
+        w := IniRead(SH_CONFIG.iniPath, "Window", "w", SH_CONFIG.windowWidth)
+        h := IniRead(SH_CONFIG.iniPath, "Window", "h", SH_CONFIG.windowHeight)
+        
+        ; Validate and convert to integers
+        if (RegExMatch(x, "^-?\d+$"))
+            geo["x"] := Integer(x)
+        if (RegExMatch(y, "^-?\d+$"))
+            geo["y"] := Integer(y)
+        if (RegExMatch(w, "^\d+$"))
+            geo["w"] := Integer(w)
+        if (RegExMatch(h, "^\d+$"))
+            geo["h"] := Integer(h)
+    } catch {
+        ; If reading fails, return empty geometry
+        return Map()
+    }
+    
+    return geo
+}
+
 Sh_SaveWindowGeometry() {
-    global SH_CONFIG, ShGui
+    global SH_CONFIG, ShGui, AuxVar
     if (!Sh_GuiIsVisible())
         return
+    
     x := ""
     y := ""
     w := ""
@@ -983,28 +1015,87 @@ Sh_SaveWindowGeometry() {
     try WinGetPos(&x, &y, &w, &h, "ahk_id " ShGui.Hwnd)
     catch
         return
-    IniWrite(Integer(x), SH_CONFIG.iniPath, "Window", "x")
-    IniWrite(Integer(y), SH_CONFIG.iniPath, "Window", "y")
-    IniWrite(Integer(w), SH_CONFIG.iniPath, "Window", "w")
-    IniWrite(Integer(h), SH_CONFIG.iniPath, "Window", "h")
+    
+    ; Ensure directory exists
+    if (!FileExist(SH_CONFIG.iniPath)) {
+        DirCreate(A_ScriptDir)
+    }
+    
+    ; Write with UTF-16LE encoding for consistency
+    try {
+        IniWrite(Integer(x), SH_CONFIG.iniPath, "Window", "x")
+        IniWrite(Integer(y), SH_CONFIG.iniPath, "Window", "y")
+        IniWrite(Integer(w), SH_CONFIG.iniPath, "Window", "w")
+        IniWrite(Integer(h), SH_CONFIG.iniPath, "Window", "h")
+        
+        ; Ensure file is saved as UTF-16LE
+        FileAppend("", SH_CONFIG.iniPath, "UTF-16")
+    } catch {
+        ; Silent failure - don't want to break the script if INI write fails
+    }
 }
 
-Sh_ReadWindowGeometry() {
-    global SH_CONFIG
-    geo := Map()
-    try {
-        x := IniRead(SH_CONFIG.iniPath, "Window", "x", SH_CONFIG.windowX)
-        y := IniRead(SH_CONFIG.iniPath, "Window", "y", SH_CONFIG.windowY)
-        w := IniRead(SH_CONFIG.iniPath, "Window", "w", SH_CONFIG.windowWidth)
-        h := IniRead(SH_CONFIG.iniPath, "Window", "h", SH_CONFIG.windowHeight)
-        if (RegExMatch(x, "^-?\\d+$"))
-            geo["x"] := Integer(x)
-        if (RegExMatch(y, "^-?\\d+$"))
-            geo["y"] := Integer(y)
-        if (RegExMatch(w, "^\\d+$"))
-            geo["w"] := Integer(w)
-        if (RegExMatch(h, "^\\d+$"))
-            geo["h"] := Integer(h)
+Sh_ClampWindowToScreen(&x, &y, &w, &h) {
+    ; Get virtual screen dimensions
+    virtualWidth := DllCall("GetSystemMetrics", "int", 78, "int")  ; SM_CXVIRTUALSCREEN
+    virtualHeight := DllCall("GetSystemMetrics", "int", 79, "int") ; SM_CYVIRTUALSCREEN
+    
+    ; Clamp width and height to minimum values
+    if (w < SH_CONFIG.minWidth)
+        w := SH_CONFIG.minWidth
+    if (h < SH_CONFIG.minHeight)
+        h := SH_CONFIG.minHeight
+    
+    ; Clamp position to stay on screen
+    if (x < 0)
+        x := 0
+    if (y < 0)
+        y := 0
+    if (x + w > virtualWidth)
+        x := virtualWidth - w
+    if (y + h > virtualHeight)
+        y := virtualHeight - h
+    
+    ; Ensure window is still visible
+    if (x < 0)
+        x := 0
+    if (y < 0)
+        y := 0
+}
+
+Sh_ApplyWindowGeometry(geo) {
+    global SH_CONFIG, ShGui
+    if (!IsSet(ShGui) || ShGui = "")
+        return
+    
+    ; Start with defaults
+    x := SH_CONFIG.windowX
+    y := SH_CONFIG.windowY
+    w := SH_CONFIG.windowWidth
+    h := SH_CONFIG.windowHeight
+    
+    ; Apply saved geometry if available
+    if (IsObject(geo)) {
+        if (geo.Has("w"))
+            w := geo["w"]
+        if (geo.Has("h"))
+            h := geo["h"]
+        if (geo.Has("x"))
+            x := geo["x"]
+        if (geo.Has("y"))
+            y := geo["y"]
     }
-    return geo
+    
+    ; Clamp to screen bounds (pass variables by reference)
+    Sh_ClampWindowToScreen(&x, &y, &w, &h)
+    
+    ; Apply geometry to GUI
+    try {
+        ShGui.Width := w
+        ShGui.Height := h
+        WinMove(x, y, w, h, "ahk_id " ShGui.Hwnd)
+    } catch {
+        ; Fallback if direct assignment fails
+        try WinMove(x, y, w, h, "ahk_id " ShGui.Hwnd)
+    }
 }
