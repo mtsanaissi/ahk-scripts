@@ -22,8 +22,10 @@ global SH_CONFIG := {
     ignoreWindowClasses: ["MultitaskingViewFrame", "TaskSwitcherWnd", "XamlExplorerHostIslandWindow"],
 
     ; UI
-    windowWidth: 770,
-    windowHeight: 520,
+    windowX: 3205,
+    windowY: 0,
+    windowWidth: 495,
+    windowHeight: 1086,
     minWidth: 420,
     minHeight: 320,
     headerHeight: 44,
@@ -483,8 +485,8 @@ Sh_ApplySavedWindowGeometry(geo) {
     if (!IsSet(ShGui) || ShGui = "")
         return
 
-    x := ""
-    y := ""
+    x := SH_CONFIG.windowX
+    y := SH_CONFIG.windowY
     w := SH_CONFIG.windowWidth
     h := SH_CONFIG.windowHeight
 
@@ -991,10 +993,10 @@ Sh_ReadWindowGeometry() {
     global SH_CONFIG
     geo := Map()
     try {
-        x := IniRead(SH_CONFIG.iniPath, "Window", "x", "")
-        y := IniRead(SH_CONFIG.iniPath, "Window", "y", "")
-        w := IniRead(SH_CONFIG.iniPath, "Window", "w", "")
-        h := IniRead(SH_CONFIG.iniPath, "Window", "h", "")
+        x := IniRead(SH_CONFIG.iniPath, "Window", "x", SH_CONFIG.windowX)
+        y := IniRead(SH_CONFIG.iniPath, "Window", "y", SH_CONFIG.windowY)
+        w := IniRead(SH_CONFIG.iniPath, "Window", "w", SH_CONFIG.windowWidth)
+        h := IniRead(SH_CONFIG.iniPath, "Window", "h", SH_CONFIG.windowHeight)
         if (RegExMatch(x, "^-?\\d+$"))
             geo["x"] := Integer(x)
         if (RegExMatch(y, "^-?\\d+$"))
