@@ -2,38 +2,45 @@
 title: AI
 displayOrder: 7
 items:
-  # Aliases
-  - clip: "codex"
-    description: "pnpm dlx @openai/codex@latest"
-    group: "ALIASES"
-  - clip: "gemini"
-    description: "Gemini CLI with auto Bitwarden auth"
-    group: "ALIASES"
-  
-  # CLI Tools
-  - clip: "pnpm dlx @openai/codex@latest"
-    description: "Run OpenAI Codex CLI"
-    group: "CLI"
-  - clip: "pnpm dlx @google/gemini-cli@latest"
-    description: "Run Google Gemini CLI"
-    group: "CLI"
-  - clip: "pnpm dlx @google/gemini-cli@latest chat"
-    description: "Start Gemini chat"
-    group: "CLI"
-  
-  # Bitwarden Auth
-  - clip: "bw_auth"
-    description: "Smart login/unlock Bitwarden vault"
-    group: "BITWARDEN"
-  - clip: "bw unlock --check"
-    description: "Check if vault is unlocked"
-    group: "BITWARDEN"
-  - clip: "bw login --check"
-    description: "Check if logged in"
-    group: "BITWARDEN"
-  - clip: "export BW_SESSION=$(bw unlock --raw)"
-    description: "Unlock and export session"
-    group: "BITWARDEN"
-  - clip: "bw get password \"\""
-    description: "Get password from vault"
-    group: "BITWARDEN"
+  # Core Action Prompts
+  - clip: "Proceed"
+    description: "Continue with the current task"
+    group: "ACTIONS"
+  - clip: "Execute task T-"
+    description: "Execute numbered task from our plan"
+    group: "ACTIONS"
+  - clip: "How do I test the last changes manually?"
+    description: "Get manual testing instructions"
+    group: "ACTIONS"
+
+  # Requirements & Analysis
+  - clip: "What are the acceptance criteria and edge cases? List them clearly."
+    description: "Request acceptance criteria and edge cases"
+    group: "REQUIREMENTS"
+  - clip: "Analyze this scenario and provide the best 3 alternative approaches with trade-offs for each."
+    description: "Request 3 alternative solutions with trade-offs"
+    group: "REQUIREMENTS"
+
+  # Codebase Understanding
+  - clip: "Explain this code in simple terms—what it does, why it exists, and how it fits into the larger system."
+    description: "Explain code purpose and context"
+    group: "UNDERSTANDING"
+  - clip: "Walk me through the execution flow of this code, from input to output."
+    description: "Request execution flow explanation"
+    group: "UNDERSTANDING"
+
+  # Documentation
+  - clip: "Generate documentation for this code: purpose, parameters, return values, examples, and any caveats."
+    description: "Request code documentation"
+    group: "DOCS"
+  - clip: "Update the existing documentation to reflect these changes."
+    description: "Request documentation update with diff"
+    group: "DOCS"
+
+  # Code Quality
+  - clip: "Review this code for bugs, security issues, and best practices violations. Be specific."
+    description: "Request code review for issues"
+    group: "QUALITY"
+  - clip: "Suggest concrete improvements for readability, performance, and maintainability."
+    description: "Request improvement suggestions"
+    group: "QUALITY"

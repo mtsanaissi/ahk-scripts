@@ -1004,7 +1004,7 @@ Sh_LoadWindowGeometry() {
 }
 
 Sh_SaveWindowGeometry() {
-    global SH_CONFIG, ShGui, AuxVar
+    global SH_CONFIG, ShGui
     if (!Sh_GuiIsVisible())
         return
     
