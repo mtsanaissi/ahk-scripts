@@ -4,116 +4,120 @@
 ; ==============================================================================
 ; CONFIGURATION
 ; ==============================================================================
-RightOffset     := 610
-TopOffset       := 80
-BoxWidth        := 60
-BoxHeight       := 90
-BoxColor        := "Red"
-BoxTransparency := 150
+; Regex matched against the active window's process name.
+; Covers PBIDesktop.exe (MSI/.exe installer) and PBIDesktopStore.exe (Microsoft Store).
+ExePattern := "i)^PBIDesktop\w*\.exe$"
 
-; --- WINDOW IDENTIFICATION CONFIGURATION ---
-; CRITICAL: You MUST replace 'ATL:00994110' with the actual ahk_class 
-; of the main Power BI Desktop window (find this with AutoHotkey's Window Spy).
-PBI_MAIN_WINDOW_ID := "ahk_exe PBIDesktop.exe ahk_class WindowsForms10.Window.8.app.0.3c14b78_r6_ad1" 
-PBI_ANY_WINDOW_ID := "ahk_exe PBIDesktop.exe"
+; Position is relative to the Power BI window.
+;   AnchorRight := true  -> OffsetX = distance from PBI's RIGHT edge to overlay's left edge
+;   AnchorRight := false -> OffsetX = distance from PBI's LEFT edge  to overlay's left edge
+AnchorRight  := true
+OffsetX      := 610
+OffsetY      := 80
+BoxW         := 60
+BoxH         := 90
+
+BoxColor     := "Red"
+BoxTransp    := 150            ; 0-255
+BoxText      := "NO GIT!"
+TextColor    := "White"
+
+MinMainWidth := 400            ; ignore splash screens / tiny helper windows
+
+; Ctrl+Alt+D shows exe / class / title / owner of the active window (for debugging).
+; Drag the overlay to move it; drag its edges to resize it. Changes last until reload.
 ; ==============================================================================
 
-; Create the GUI Object
-BlockerGui := Gui("+AlwaysOnTop -Caption +ToolWindow +LastFound")
-BlockerGui.BackColor := BoxColor
-BlockerGui.SetFont("s9 bold cWhite", "Segoe UI")
-BlockerGui.Add("Text", "x0 y35 w" BoxWidth " Center", "NO GIT!")
+PbiHwnd := 0
+Dragging := false
 
-; Start the monitoring loop (500ms = 2 times per second)
-SetTimer(CheckPBI, 400)
+; -DPIScale = raw pixel coordinates (same unit as WinGetPos) -> no offset on scaled displays
+; E0x08000000 = WS_EX_NOACTIVATE -> clicking the overlay never steals focus
+Ovl := Gui("+AlwaysOnTop -Caption +ToolWindow +Resize -DPIScale +E0x08000000 +MinSize20x20")
+Ovl.BackColor := BoxColor
+Ovl.SetFont("s9 bold c" TextColor, "Segoe UI")
+Txt := Ovl.Add("Text", "x0 y0 w" BoxW " h" BoxH " Center +0x200 BackgroundTrans", BoxText)
+Ovl.OnEvent("Size", OnOvlSize)
 
-CheckPBI()
-{
-    global RightOffset, TopOffset, BoxWidth, BoxHeight, BoxTransparency
-    global PBI_MAIN_WINDOW_ID, PBI_ANY_WINDOW_ID
-    global BlockerGui
-    
-    ; Static variables remember their values between function calls
-    static LastX := 0, LastY := 0, LastW := 0, LastH := 0, IsVisible := false
+OnMessage(0x201, OnLButtonDown)
+OnMessage(0x231, OnEnterSizeMove)
+OnMessage(0x232, OnExitSizeMove)
 
-    ; 1. Check if Power BI Desktop exists (running at all)
-    if (!WinExist(PBI_ANY_WINDOW_ID))
-    {
-        ; If Power BI Desktop is not running, hide the blocker.
-        if (IsVisible)
-        {
-            BlockerGui.Hide()
+SetTimer(CheckPBI, 150)
+
+OnOvlSize(gui, minMax, w, h) {
+    global Txt
+    Txt.Move(0, 0, w, h)
+    Txt.Redraw()
+}
+
+OnLButtonDown(wParam, lParam, msg, hwnd) {
+    global Ovl
+    if (hwnd = Ovl.Hwnd)
+        PostMessage(0xA1, 2, 0, , "ahk_id " Ovl.Hwnd)  ; WM_NCLBUTTONDOWN, HTCAPTION
+}
+
+OnEnterSizeMove(*) {
+    global Dragging
+    Dragging := true
+}
+
+OnExitSizeMove(*) {
+    global Ovl, PbiHwnd, Dragging, OffsetX, OffsetY, BoxW, BoxH, AnchorRight
+    Dragging := false
+    if (!PbiHwnd || !WinExist(PbiHwnd))
+        return
+    WinGetPos(&px, &py, &pw, &ph, PbiHwnd)
+    WinGetPos(&ox, &oy, &BoxW, &BoxH, Ovl.Hwnd)
+    OffsetX := AnchorRight ? (px + pw - ox) : (ox - px)
+    OffsetY := oy - py
+}
+
+CheckPBI() {
+    global Ovl, ExePattern, PbiHwnd, Dragging, MinMainWidth
+    global AnchorRight, OffsetX, OffsetY, BoxW, BoxH, BoxTransp
+    static LastKey := "", IsVisible := false
+
+    if (Dragging)
+        return
+
+    hAct := WinExist("A")
+    if (hAct = Ovl.Hwnd)
+        return
+
+    ok := false
+    try {
+        if (hAct
+            && RegExMatch(WinGetProcessName(hAct), ExePattern)       ; Power BI process
+            && !DllCall("GetWindow", "Ptr", hAct, "UInt", 4, "Ptr") ; not an owned dialog
+            && WinGetMinMax(hAct) != -1) {                           ; not minimized
+            WinGetPos(&px, &py, &pw, &ph, hAct)
+            ok := (pw >= MinMainWidth && ph > 0)
+        }
+    }
+
+    if (!ok) {
+        if (IsVisible) {
+            Ovl.Hide()
             IsVisible := false
-            LastX := 0, LastY := 0 
+            LastKey := ""
         }
         return
     }
 
-    ; 2. Check if the main Power BI window is visible and active
-    
-    ; The blocker should only be visible when the main PBI window is the active window
-    ; and is not minimized.
-    if (!WinActive(PBI_MAIN_WINDOW_ID))
-    {
-        ; If PBI is NOT the active window (minimized or Alt+Tabbed away), hide the blocker.
-        if (IsVisible)
-        {
-            BlockerGui.Hide()
-            IsVisible := false
-            LastX := 0, LastY := 0 
-        }
+    PbiHwnd := hAct
+    key := px "," py "," pw "," ph "," hAct "," OffsetX "," OffsetY "," BoxW "," BoxH
+    if (key = LastKey && IsVisible)
         return
-    }
 
-    ; --- Power BI is running AND is the active window ---
-    
-    ; 3. Get current position of PBI main window using the specific ID
-    try 
-    {
-        ; This targets the main window and ignores popups/modals
-        WinGetPos(&PbiX, &PbiY, &PbiW, &PbiH, PBI_MAIN_WINDOW_ID)
-    }
-    catch
-    {
-        return
-    }
+    ox := AnchorRight ? px + pw - OffsetX : px + OffsetX
+    oy := py + OffsetY
 
-    ; 4. Safety check: If the position data is zero (shouldn't happen here if it's active, but good practice)
-    if (PbiW = 0 || PbiH = 0)
-    {
-        if (IsVisible)
-        {
-            BlockerGui.Hide()
-            IsVisible := false
-            LastX := 0, LastY := 0 
-        }
-        return
-    }
-    
-    ; 5. Use the main window position for blocker calculation
-    UseX := PbiX
-    UseY := PbiY
-    UseW := PbiW
-    UseH := PbiH
-
-    ; 6. Optimization: Only Redraw if position/size changed, or if it was previously hidden
-    if (UseX != LastX || UseY != LastY || UseW != LastW || UseH != LastH || !IsVisible)
-    {
-        ; Calculate coordinates anchored to the RIGHT side of the main window
-        BlockX := UseX + UseW - RightOffset
-        BlockY := UseY + TopOffset
-
-        ; Move and Show the GUI
-        BlockerGui.Show("x" BlockX " y" BlockY " w" BoxWidth " h" BoxHeight " NoActivate")
-        
-        ; Ensure transparency is applied
-        WinSetTransparent(BoxTransparency, BlockerGui.Hwnd)
-        
-        ; Update state memory
-        LastX := UseX
-        LastY := UseY
-        LastW := UseW
-        LastH := UseH
+    if (!IsVisible) {
+        Ovl.Show("NoActivate x" ox " y" oy)
+        WinSetTransparent(BoxTransp, Ovl.Hwnd)
         IsVisible := true
     }
+    Ovl.Move(ox, oy, BoxW, BoxH)
+    LastKey := key
 }
